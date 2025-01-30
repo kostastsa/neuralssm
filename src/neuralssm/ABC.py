@@ -14,7 +14,7 @@ import tensorflow_probability.substrates.jax.distributions as tfd
 
 def smc_abc(key,
             observations,
-            lgssm, 
+            ssm, 
             example_param,
             props,
             prior, 
@@ -28,7 +28,7 @@ def smc_abc(key,
     def _step(carry, t):
         particles, weights, cov, key = carry
         tol = tol_init - 0.1 * t
-        debug.print('{x}', x=tol)
+        # debug.print('{x}', x=tol)
         chol = jnp.linalg.cholesky(cov)
 
         
@@ -49,7 +49,7 @@ def smc_abc(key,
             
             # Simulate emissions
             key, subkey = jr.split(key)
-            sim_emissions = map_sims(subkey, new_particle, props, example_param, lgssm, num_timesteps)
+            sim_emissions = map_sims(subkey, new_particle, props, example_param, ssm, num_timesteps)
             # Compute distance
             dist = jnp.linalg.norm(observations - sim_emissions) / jnp.sqrt(num_timesteps * emission_dim)
             count += 1
