@@ -278,7 +278,7 @@ class ExperimentDescriptor:
 
         self.sim = None
         self.inf = None
-        self.param_meta = None # The idea is to keep all parameter metadata in a separate file
+        self.pmeta = None # The idea is to keep all parameter metadata in a separate file
         self.parse(str)
 
     def pprint(self):
@@ -309,7 +309,7 @@ class ExperimentDescriptor:
         variables = {}
         with open(param_file) as f:
             exec(f.read(), variables)
-        self.param_meta = variables['param_meta']
+        self.pmeta = variables['pmeta']
 
     def get_dir(self):
 
