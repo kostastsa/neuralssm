@@ -1,3 +1,5 @@
+# This module is taken/adapted from the repository ([https://github.com/gpapamak/snl.git])
+# Originally authored by George Papamakarios, under the MIT License
 import argparse
 import numpy as np
 
@@ -77,7 +79,7 @@ def run_trials(args):
 
         runner = ExperimentRunner(exp_desc)
 
-        for trial in xrange(args.start, args.end + 1):
+        for trial in range(args.start, args.end + 1):
 
             try:
                 runner.run(trial=trial, sample_gt=True, rng=np.random)

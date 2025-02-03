@@ -1,3 +1,5 @@
+import sys 
+sys.path.append(r'/Users/kostastsampourakis/Desktop/code/Python/projects/neuralssm/src/neuralssm')
 from abc import ABC
 from abc import abstractmethod
 from parameters import ParamSSM
@@ -11,7 +13,6 @@ from jax.scipy.special import factorial as fac, logsumexp as lse, gammaln
 import jax.numpy as jnp
 import jax.random as jr
 from dynamax.types import PRNGKey # type: ignore
-from utils import bin_coeff
 
 class SSM(ABC):
     r"""A base class for state space models. Such models consist of parameters, which
@@ -57,7 +58,7 @@ class SSM(ABC):
         state: Float[Array, "state_dim"],
         inputs: Optional[Float[Array, "input_dim"]]
     ) -> tfd.Distribution:
-        r"""Return a distribution over next latent state given current state.
+        r"""Next latent state given current state.
 
         Args:
             params: model parameters $\theta$

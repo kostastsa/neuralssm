@@ -10,7 +10,7 @@ from dynamax.utils.bijectors import RealToPSDBijector # type: ignore
 import numpy as onp # type: ignore
 
 from density_models import MAF
-from ssm import SV
+from neuralssm.ssm.ssm import SV
 
 from flax import nnx # type: ignore
 from matplotlib import pyplot as plt # type: ignore
