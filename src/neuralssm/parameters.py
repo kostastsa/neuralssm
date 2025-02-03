@@ -3,7 +3,7 @@ import jax.random as jr
 from jax.tree_util import tree_map
 from jax.flatten_util import ravel_pytree
 from jax import jit
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, NamedTuple
 import tensorflow_probability.substrates.jax.distributions as tfd
 import tensorflow_probability.substrates.jax.bijectors as tfb
 from functools import reduce, partial
@@ -24,6 +24,7 @@ class ParamNode():
         def __str__(self):
             return f"value={self.value}, is_constrained={self.is_constrained}"
 
+
 class ParamField():
 
     def __init__(self, 
@@ -40,6 +41,7 @@ class ParamField():
             str += f"{key}={getattr(self, key).__class__.__name__}({self.__dict__[key]}), "
         return str[:-2]
     
+
 class Field():
 
     def __init__(self, 
@@ -57,6 +59,7 @@ class Field():
         for key in self.__dict__:
             str += f"{key}={getattr(self, key).__class__.__name__}({self.__dict__[key]}), "
         return str[:-2]
+
 
 class ParamSSM():
 
@@ -120,6 +123,12 @@ class ParamSSM():
                 is_constrained_list.append(getattr(getattr(field, subfield_name), 'is_constrained'))
             is_constrained_tree.append(is_constrained_list)
         return is_constrained_tree
+
+
+class ParamMeta(NamedTuple):
+    props: ParamSSM
+    prior: ParamSSM
+
 
 def get_unravel_fn(params, props):
     list_trainable_params = []

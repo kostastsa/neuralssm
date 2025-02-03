@@ -16,7 +16,7 @@ from parameters import params_from_tree, sample_ssm_params, initialize, to_train
 import tensorflow_probability.substrates.jax.distributions as tfd # type: ignore
 import tensorflow_probability.substrates.jax.bijectors as tfb # type: ignore
 from simulation_inference import sequential_posterior_sampling, inference_loop
-from ssm import LGSSM
+from neuralssm.ssm.ssm import LGSSM
 from filters import bpf
 
 import csv
@@ -89,12 +89,15 @@ dynamics_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(m), scale_di
 param_names = [['mean', 'cov'],
                ['weights', 'bias', 'input_weights', 'cov'],
                ['weights', 'bias', 'input_weights', 'cov']]
+
 prior_fields = [[initial_mean, initial_covariance],
                 [dynamics_weights, dynamics_bias, dynamics_input_weights, dynamics_covariance_dist],
                 [emission_weights, emission_bias, emission_input_weights, emission_covariance]]
+
 is_constrained_tree = [[True, True], 
                        [True, True, True, False], 
                        [True, True, True, True]]
+
 constrainers  = [[None, RealToPSDBijector],
                 [None, None, None, RealToPSDBijector],
                 [None, None, None, RealToPSDBijector]]

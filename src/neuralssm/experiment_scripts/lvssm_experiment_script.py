@@ -14,7 +14,7 @@ from parameters import params_from_tree, sample_ssm_params, initialize, to_train
 import tensorflow_probability.substrates.jax.distributions as tfd # type: ignore
 import tensorflow_probability.substrates.jax.bijectors as tfb # type: ignore
 from simulation_inference import sequential_posterior_sampling, inference_loop
-from ssm import SPN
+from neuralssm.ssm.ssm import SPN
 from filters import bpf
 
 import csv
