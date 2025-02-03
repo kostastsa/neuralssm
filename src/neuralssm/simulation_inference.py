@@ -7,7 +7,7 @@ from jax.tree_util import tree_map
 from utils import reshape_emissions, map_sims
 from parameters import  ParamSSM, to_train_array, log_prior, sample_ssm_params
 from density_models import MAF
-from ssm import SSM
+from neuralssm.ssm.ssm import SSM
 from datasets.data_loaders import Data, get_data_loaders 
 from flax import nnx
 import optax
@@ -150,7 +150,7 @@ def sequential_posterior_sampling(
                     ):
     '''
     Sequentially samples parameters from the posterior using the TAF likelihood and MCMC.
-    The output is the trained model after num_rounds rounds and the final MCMC samples.
+    The output is the trained model after num_rounds and the final MCMC samples.
     The sample_and_train and logdensity_fn have to be set to taf or snl to distinguish between the two methods.
     '''
     # Sample initial parameters

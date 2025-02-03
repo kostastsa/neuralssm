@@ -1,3 +1,5 @@
+import sys 
+sys.path.append(r'/Users/kostastsampourakis/Desktop/code/Python/projects/neuralssm/src/neuralssm')
 import jax # type: ignore
 from jax import numpy as jnp # type: ignore
 from jax import random as jr # type: ignore
@@ -14,7 +16,7 @@ from parameters import params_from_tree, sample_ssm_params, initialize, to_train
 import tensorflow_probability.substrates.jax.distributions as tfd # type: ignore
 import tensorflow_probability.substrates.jax.bijectors as tfb # type: ignore
 from simulation_inference import sequential_posterior_sampling, inference_loop
-from ssm import LGSSM
+from neuralssm.ssm.ssm import LGSSM
 from filters import bpf
 
 import csv
