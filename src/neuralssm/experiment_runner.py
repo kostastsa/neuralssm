@@ -1,19 +1,27 @@
-# This module is taken/adapted from the repository ([https://github.com/gpapamak/snl.git])
-# Originally authored by George Papamakarios, under the MIT License
+# This module is adapted from the repository ([https://github.com/gpapamak/snl.git]),
+# authored by George Papamakarios under the MIT License
+import jax 
+from jax import numpy as jnp 
+from jax import random as jr # type: ignore
+import orbax.checkpoint as ocp
 
 import os
 import shutil
-import numpy as np
+import gc
 
 import util.plot
 import util.io
 import util.math
+from util.param import sample_prior, to_train_array
+from util.misc import kde_error
+
+from flax import nnx
+from density_models import MAF
 
 import experiment_descriptor as ed
 import misc
 
-# import simulators
-
+import inspect
 
 class ExperimentRunner:
     """
@@ -31,7 +39,7 @@ class ExperimentRunner:
         self.exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
         self.sim = misc.get_simulator(exp_desc.sim)
 
-    def run(self, trial=0, sample_gt=False, rng=np.random):
+    def run(self, trial=0, sample_gt=False, n_post_samples=1000, key=jr.PRNGKey(0), seed=0):
         """
         Runs the experiment.
         :param rng: random number generator to use
@@ -50,10 +58,16 @@ class ExperimentRunner:
 
         try:
             if isinstance(self.exp_desc.inf, ed.ABC_Descriptor):
-                self._run_abc(exp_dir, sample_gt, rng)
+                self._run_abc(exp_dir, sample_gt, key, seed)
+
+            elif isinstance(self.exp_desc.inf, ed.PRT_MCMC_Descriptor):
+                self._run_prt_mcmc(exp_dir, sample_gt, n_post_samples, key, seed)
 
             elif isinstance(self.exp_desc.inf, ed.SNL_Descriptor):
-                self._run_snl(exp_dir, sample_gt, rng)
+                self._run_snl(exp_dir, sample_gt, n_post_samples, key, seed)
+
+            elif isinstance(self.exp_desc.inf, ed.TSNL_Descriptor):
+                self._run_tsnl(exp_dir, sample_gt, n_post_samples, key, seed)
 
             else:
                 raise TypeError('unknown inference descriptor')
@@ -62,7 +76,7 @@ class ExperimentRunner:
             shutil.rmtree(exp_dir)
             raise
 
-    def _run_abc(self, exp_dir, sample_gt, rng):
+    def _run_abc(self, exp_dir, sample_gt, key, seed):
         """
         Runs the ABC experiments.
         """
@@ -70,135 +84,121 @@ class ExperimentRunner:
         import inference.abc as abc
 
         inf_desc = self.exp_desc.inf
-
-        prior = self.sim.Prior()
-        model = self.sim.Model()
-        stats = self.sim.Stats()
-        sim_model = lambda ps, rng: stats.calc(model.sim(ps, rng=rng))
-        true_ps, obs_xs = simulators.sim_data(prior.gen, sim_model, rng=rng) if sample_gt else self.sim.get_ground_truth()
+        sim_desc = self.exp_desc.sim
+        param_info = self.sim.get_param_info()
+        sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+        ssm = sim_setup['ssm']
+        props = sim_setup['props']
+        inputs = sim_setup['inputs']
+        
+        if sample_gt:
+            key, subkey = jr.split(key)
+            true_ps = sample_prior(key, props)[0]
+            true_cps = to_train_array(true_ps, props)
+            true_ps.from_unconstrained(props)
+            _, obs_ys = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+        else:
+            true_ps, obs_ys = self.sim.get_ground_truth()
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
-            if isinstance(inf_desc, ed.Rej_ABC_Descriptor):
-                abc_runner = abc.Rejection(prior, sim_model)
-                results = abc_runner.run(
-                    obs_xs,
-                    eps=inf_desc.eps,
-                    n_samples=inf_desc.n_samples,
-                    logger=logger,
-                    info=True,
-                    rng=rng
-                )
+            if isinstance(inf_desc, ed.SMC_ABC_Descriptor):
 
-            elif isinstance(inf_desc, ed.MCMC_ABC_Descriptor):
-                abc_runner = abc.MCMC(prior, sim_model, true_ps)
-                results = abc_runner.run(
-                    obs_xs,
-                    eps=inf_desc.eps,
-                    step=inf_desc.step,
-                    n_samples=inf_desc.n_samples,
-                    logger=logger,
-                    info=True,
-                    rng=rng
-                )
+                abc_runner = abc.SMC(props, ssm)
 
-            elif isinstance(inf_desc, ed.SMC_ABC_Descriptor):
-                abc_runner = abc.SMC(prior, sim_model)
                 results = abc_runner.run(
-                    obs_xs,
+                    key,
+                    obs_ys,
                     eps_init=inf_desc.eps_init,
                     eps_last=inf_desc.eps_last,
                     eps_decay=inf_desc.eps_decay,
-                    n_particles=inf_desc.n_samples,
-                    logger=logger,
-                    info=True,
-                    rng=rng
+                    num_particles=inf_desc.n_samples,
+                    logger=logger
                 )
 
             else:
                 raise TypeError('unknown ABC algorithm')
-
-            util.io.save((true_ps, obs_xs), os.path.join(exp_dir, 'gt'))
+            
+            samples, _, _, _, counts, _, _ = results
+            error = kde_error(samples[-1], true_cps)
+            num_simulations = counts * sim_desc.num_timesteps
+            
+            util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
+            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error.txt'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
+            util.io.save(abc_runner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
+            util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
             util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
+            util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
 
-    def _train_model(self, exp_dir, rng):
+            del results
+            abc_runner = None
+            jax.clear_backends()
+            gc.collect()
+
+
+    def _run_prt_mcmc(self, exp_dir, sample_gt, n_post_samples, key, seed):
         """
-        Trains the model for the NDE experiments.
+        Runs the ABC experiments.
         """
 
-        import inference.nde as nde
+        import inference.mcmc as mcmc
 
-        target = self.exp_desc.inf.target
-        n_samples = self.exp_desc.inf.n_samples
+        inf_desc = self.exp_desc.inf
+        sim_desc = self.exp_desc.sim
+        param_info = self.sim.get_param_info()
+        sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+        ssm = sim_setup['ssm']
+        props = sim_setup['props']
+        inputs = sim_setup['inputs']
+        if sample_gt:
+            key, subkey = jr.split(key)
+            true_ps = sample_prior(key, props)[0]
+            true_cps = to_train_array(true_ps, props)
+            true_ps.from_unconstrained(props)
+            _, obs_ys = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
 
-        ps, xs = self.sim.SimsLoader().load(n_samples)
-
-        monitor_every = min(10 ** 5 / float(n_samples), 1.0)
+        else:
+            true_ps, obs_ys = self.sim.get_ground_truth()
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
-            if target == 'posterior':
-                model = self._create_model(xs.shape[1], ps.shape[1], rng)
-                model = nde.learn_conditional_density(model, xs, ps, monitor_every=monitor_every, logger=logger, rng=rng)
+            if isinstance(inf_desc, ed.PRT_MCMC_Descriptor):
 
-            elif target == 'likelihood':
-                model = self._create_model(ps.shape[1], xs.shape[1], rng)
-                model = nde.learn_conditional_density(model, ps, xs, monitor_every=monitor_every, logger=logger, rng=rng)
+                mcmc_runner = mcmc.BPF_MCMC(props, ssm)
 
+                results = mcmc_runner.run(
+                    key,
+                    obs_ys,
+                    num_prt = inf_desc.num_prt,
+                    num_posterior_samples=n_post_samples,
+                    mcmc_steps = inf_desc.mcmc_steps,
+                    num_iters = inf_desc.num_iters,
+                    logger=logger
+                    )
+                
             else:
-                raise ValueError('unknown distribution')
 
-            util.io.save(model, os.path.join(exp_dir, 'model'))
+                raise TypeError('unknown PRT_MCMC algorithm')
+
+            error = kde_error(results[0], true_cps)
+            num_simulations = inf_desc.num_prt * sim_desc.num_timesteps * inf_desc.mcmc_steps * inf_desc.num_iters
+
+            util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
+            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error.txt'))
+            util.io.save(results, os.path.join(exp_dir, 'results'))
+            util.io.save_txt(str(mcmc_runner.time), os.path.join(exp_dir, 'time.txt'))
+            util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
             util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
+            util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
 
-    def _run_pmcmc(self, exp_dir, sample_gt, rng):
-        """
-        Runs the posterior learner with proposal.
-        """
+            del results
+            mcmc_runner = None
+            jax.clear_backends()
+            gc.collect()
 
-        import inference.nde as nde
 
-        inf_desc = self.exp_desc.inf
-        model_desc = inf_desc.model
-        assert isinstance(model_desc, ed.MDN_Descriptor)
-
-        prior = self.sim.Prior()
-        model = self.sim.Model()
-        stats = self.sim.Stats()
-        sim_model = lambda ps, rng: stats.calc(model.sim(ps, rng=rng))
-        true_ps, obs_xs = simulators.sim_data(prior.gen, sim_model, rng=rng) if sample_gt else self.sim.get_ground_truth()
-
-        learner = nde.PosteriorLearnerWithProposal(prior, sim_model, model_desc.n_hiddens, model_desc.act_fun)
-
-        with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
-
-            learner.learn_proposal(
-                obs_xs=obs_xs,
-                n_samples=inf_desc.n_samples_p,
-                n_rounds=inf_desc.n_rounds_p,
-                maxepochs=inf_desc.maxepochs_p,
-                store_sims=True,
-                logger=logger,
-                rng=rng
-            )
-
-            learner.learn_posterior(
-                obs_xs=obs_xs,
-                n_samples=inf_desc.n_samples_f,
-                n_comps=model_desc.n_comps,
-                maxepochs=inf_desc.maxepochs_f,
-                store_sims=True,
-                logger=logger,
-                rng=rng
-            )
-
-            util.io.save((true_ps, obs_xs), os.path.join(exp_dir, 'gt'))
-            util.io.save((learner.mdn_prop, learner.mdn_post), os.path.join(exp_dir, 'models'))
-            util.io.save((learner.all_proposals, learner.posterior, learner.all_ps, learner.all_xs), os.path.join(exp_dir, 'results'))
-            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
-
-    def _run_trunc_snl(self, exp_dir, sample_gt, rng):
+    def _run_snl(self, exp_dir, sample_gt, n_post_samples, key, seed):
         """
         Runs the likelihood learner with MCMC.
         """
@@ -206,37 +206,67 @@ class ExperimentRunner:
         import inference.nde as nde
 
         inf_desc = self.exp_desc.inf
+        sim_desc = self.exp_desc.sim
+        param_info = self.sim.get_param_info()
+        sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+        ssm = sim_setup['ssm']
+        props = sim_setup['props']
+        inputs = sim_setup['inputs']
+        key, subkey = jr.split(key)
+        xparam = sample_prior(subkey, props)[0]
 
-        prior = self.sim.Prior()
-        model = self.sim.Model()
-        stats = self.sim.Stats()
-        sim_model = lambda ps, rng: stats.calc(model.sim(ps, rng=rng))
-        true_ps, obs_xs = simulators.sim_data(prior.gen, sim_model, rng=rng) if sample_gt else self.sim.get_ground_truth()
+        if sample_gt:
+            key, subkey = jr.split(key)
+            true_ps = sample_prior(key, props)[0]
+            true_cps = to_train_array(true_ps, props)
+            true_ps.from_unconstrained(props)
+            _, obs_ys = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+        else:
+            true_ps, obs_ys = self.sim.get_ground_truth()
 
-        net = self._create_model(prior.n_dims, len(obs_xs), rng)
-
-        learner = nde.SequentialNeuralLikelihood(prior, sim_model)
+        n_inputs = sim_desc.emission_dim * sim_desc.num_timesteps
+        n_cond = to_train_array(xparam, props).shape[0]
+        key_model, key_learner = jr.split(key)
+        model = self._create_model(n_inputs, n_cond, key_model)
+        learner = nde.SequentialNeuralLikelihood(props, ssm, lag=-1)
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
-            learner.learn_likelihood(
-                obs_xs=obs_xs,
-                model=net,
-                n_samples=inf_desc.n_samples,
-                n_rounds=inf_desc.n_rounds,
-                train_on_all=(inf_desc.train_on == 'all'),
-                thin=inf_desc.thin,
-                save_models=True,
-                logger=logger,
-                rng=rng
+            model, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
+                key=key_learner,
+                observations=obs_ys,
+                model=model,
+                num_rounds=inf_desc.n_rounds,
+                num_timesteps=sim_desc.num_timesteps,
+                num_samples=inf_desc.n_samples,
+                num_posterior_samples=n_post_samples,
+                train_on=inf_desc.train_on,
+                mcmc_steps=inf_desc.mcmc_steps,
+                logger=logger
             )
 
-            util.io.save((true_ps, obs_xs), os.path.join(exp_dir, 'gt'))
-            util.io.save(net, os.path.join(exp_dir, 'model'))
-            util.io.save((learner.all_ps, learner.all_xs, learner.all_models), os.path.join(exp_dir, 'results'))
-            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
+            error = kde_error(posterior_cond_sample, true_cps)
+            num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
 
-    def _run_snl(self, exp_dir, sample_gt, rng):
+            util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
+            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error.txt'))
+            util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
+            util.io.save(learner.all_emissions, os.path.join(exp_dir, 'all_emissions'))
+            util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))
+            util.io.save((posterior_sample, posterior_cond_sample), os.path.join(exp_dir, 'posterior'))
+            util.io.save(learner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
+            util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples, -1), os.path.join(exp_dir, 'all_dists'))
+            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
+            util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
+            util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
+
+            del posterior_sample, posterior_cond_sample
+            learner = None
+            model = None
+            jax.clear_backends()
+            gc.collect()
+
+    def _run_tsnl(self, exp_dir, sample_gt, n_post_samples, key, seed):
         """
         Runs the likelihood learner with MCMC.
         """
@@ -244,68 +274,101 @@ class ExperimentRunner:
         import inference.nde as nde
 
         inf_desc = self.exp_desc.inf
+        sim_desc = self.exp_desc.sim
+        param_info = self.sim.get_param_info()
+        sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+        ssm = sim_setup['ssm']
+        props = sim_setup['props']
+        inputs = sim_setup['inputs']
 
-        prior = self.sim.Prior()
-        model = self.sim.Model()
-        stats = self.sim.Stats()
-        sim_model = lambda ps, rng: stats.calc(model.sim(ps, rng=rng))
-        true_ps, obs_xs = simulators.sim_data(prior.gen, sim_model, rng=rng) if sample_gt else self.sim.get_ground_truth()
+        key, subkey = jr.split(key)
+        xparam = sample_prior(subkey, props)[0]
 
-        net = self._create_model(prior.n_dims, len(obs_xs), rng)
+        num_tiles=None
+        subsample=False
 
-        learner = nde.SequentialNeuralLikelihood(prior, sim_model)
+        if inf_desc.subsample < 1.0:
+
+            num_tiles = int(inf_desc.subsample * sim_desc.num_timesteps)
+            subsample = True
+
+        if sample_gt:
+
+            key, subkey = jr.split(key)
+            true_ps = sample_prior(key, props)[0]
+            true_cps = to_train_array(true_ps, props)
+            true_ps.from_unconstrained(props)
+            true_ps, obs_ys = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+
+        else:
+
+            true_ps, obs_ys = self.sim.get_ground_truth()
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
-            learner.learn_likelihood(
-                obs_xs=obs_xs,
-                model=net,
-                n_samples=inf_desc.n_samples,
-                n_rounds=inf_desc.n_rounds,
-                train_on_all=(inf_desc.train_on == 'all'),
-                thin=inf_desc.thin,
-                save_models=True,
+            n_inputs = sim_desc.emission_dim
+            n_params = to_train_array(xparam, props).shape[0]
+            n_cond = inf_desc.lag * sim_desc.emission_dim + n_params
+            key_model, key_learner = jr.split(key)
+            model = self._create_model(n_inputs, n_cond, key_model)
+            learner = nde.SequentialNeuralLikelihood(props, ssm, lag=inf_desc.lag)
+
+            model, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
+                key=key_learner,
+                observations=obs_ys,
+                model=model,
+                num_rounds=inf_desc.n_rounds,
+                num_timesteps=sim_desc.num_timesteps,
+                num_samples=inf_desc.n_samples,
+                num_posterior_samples=n_post_samples,
+                train_on=inf_desc.train_on,
+                mcmc_steps=inf_desc.mcmc_steps,
                 logger=logger,
-                rng=rng
+                num_tiles = num_tiles,
+                subsample = subsample
             )
+            
+            error = kde_error(posterior_cond_sample, true_cps)
+            num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
 
-            util.io.save((true_ps, obs_xs), os.path.join(exp_dir, 'gt'))
-            util.io.save(net, os.path.join(exp_dir, 'model'))
-            util.io.save((learner.all_ps, learner.all_xs, learner.all_models), os.path.join(exp_dir, 'results'))
+            util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
+            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error'))
+            util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
+            util.io.save(learner.all_emissions, os.path.join(exp_dir, 'all_emissions'))
+            util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))
+            util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples), os.path.join(exp_dir, 'all_dists'))
+            util.io.save((posterior_sample, posterior_cond_sample), os.path.join(exp_dir, 'posterior'))
             util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
+            util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
+            util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
 
-    def _create_model(self, n_inputs, n_outputs, rng):
+            del posterior_sample, posterior_cond_sample
+            learner = None
+            model = None
+            gc.collect()
+            jax.clear_backends()
+
+    def _create_model(self, n_inputs, n_cond, rng):
         """
         Given input and output sizes, creates and returns the model for the NDE experiments.
         """
 
         model_desc = self.exp_desc.inf.model
 
-        if isinstance(model_desc, ed.MDN_Descriptor):
+        if isinstance(model_desc, ed.MAF_Descriptor):
 
-            import ml.models.mdns as mdns
-
-            return mdns.MDN(
-                n_inputs=n_inputs,
-                n_outputs=n_outputs,
-                n_hiddens=model_desc.n_hiddens,
+            return MAF(
+                din = n_inputs,
+                nmade = model_desc.nmades,
+                dhidden=model_desc.dhidden,
+                nhidden=model_desc.nhidden,
                 act_fun=model_desc.act_fun,
-                n_components=model_desc.n_comps,
-                rng=rng
-            )
-
-        elif isinstance(model_desc, ed.MAF_Descriptor):
-
-            import ml.models.mafs as mafs
-
-            return mafs.ConditionalMaskedAutoregressiveFlow(
-                n_inputs=n_inputs,
-                n_outputs=n_outputs,
-                n_hiddens=model_desc.n_hiddens,
-                act_fun=model_desc.act_fun,
-                n_mades=model_desc.n_comps,
-                mode='random',
-                rng=rng
+                dcond = n_cond,
+                rngs = nnx.Rngs(rng),
+                random_order = model_desc.random_order,
+                reverse=model_desc.reverse,
+                dropout=model_desc.dropout,
+                batch_norm=model_desc.batch_norm
             )
 
         else:

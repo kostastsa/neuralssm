@@ -4,15 +4,16 @@ import numpy as onp
 from jax import random as jr
 from jax import vmap
 from jax.tree_util import tree_map
-from utils import reshape_emissions, map_sims
-from parameters import  ParamSSM, to_train_array, log_prior, sample_ssm_params
+from util.train import reshape_emissions
+from util.sample import map_sims
+from util.param import  ParamSSM, to_train_array, log_prior, sample_prior
 from density_models import MAF
-from neuralssm.ssm.ssm import SSM
+from ssm import SSM
 from datasets.data_loaders import Data, get_data_loaders 
 from flax import nnx
 import optax
 import blackjax
-from parameters import get_unravel_fn, tree_from_params, join_trees, params_from_tree
+from util.param import get_unravel_fn, tree_from_params, join_trees, params_from_tree
 from functools import partial
 
 def inference_loop(rng_key, kernel, initial_state, num_samples):
@@ -29,6 +30,7 @@ def inference_loop(rng_key, kernel, initial_state, num_samples):
 
     return states
 
+
 def logdensity_fn(cond_params, model, emissions, prior, lag):
     '''
     Computes the log density of the TAF (lag>0) and SNL (lag=0) models.
@@ -42,6 +44,7 @@ def logdensity_fn(cond_params, model, emissions, prior, lag):
     lp += log_prior(cond_params, prior)
     return lp
 
+
 @nnx.jit  
 def train_step(model, optimizer, data):
     '''
@@ -52,14 +55,14 @@ def train_step(model, optimizer, data):
     optimizer.update(grads)  # inplace updates
     return loss
 
+
 def sample_and_train(key,
                      model: MAF,
                      ssmodel: SSM,
                      lag: int,
                      num_timesteps: int, 
-                     props: ParamSSM,
+                     props_prior: ParamSSM,
                      params_sample: list,
-                     example_param,
                      prev_dataset: onp.array = onp.array([]),
                      batch_size: int = 128,
                      num_epochs: int = 20,
@@ -77,8 +80,8 @@ def sample_and_train(key,
     num_samples = len(params_sample)
     keys = jr.split(key, num_samples)
 
-    all_cond_params = jnp.array(tree_map(lambda params: to_train_array(params, props), params_sample))
-    all_emissions = vmap(map_sims, in_axes=(0,0,None,None,None,None))(keys, all_cond_params, props, example_param, ssmodel, num_timesteps)
+    all_cond_params = jnp.array(tree_map(lambda params: to_train_array(params, props_prior), params_sample))
+    all_emissions = vmap(map_sims, in_axes=(0,0,None,None,None))(keys, all_cond_params, props_prior, ssmodel, num_timesteps)
     if lag > 0:
         all_cond_params_tiled = vmap(jnp.tile, in_axes=(0, None))(all_cond_params, (num_timesteps, 1))
         all_lagged_emissions = vmap(reshape_emissions, in_axes=(0, None))(all_emissions, lag)
@@ -131,6 +134,7 @@ def sample_and_train(key,
 
     return model, new_dataset
 
+
 def sequential_posterior_sampling(
                     key : jr.PRNGKey,
                     model: MAF,
@@ -141,8 +145,7 @@ def sequential_posterior_sampling(
                     num_samples: int,
                     num_mcmc_steps: int,
                     emissions,
-                    prior,
-                    props,
+                    props_prior,
                     example_param,
                     param_names,
                     is_constrained_tree,
@@ -155,7 +158,7 @@ def sequential_posterior_sampling(
     '''
     # Sample initial parameters
     key, subkey = jr.split(key)
-    params_sample = sample_ssm_params(subkey, prior, num_samples) # Here, output params are in mixed constrained/unconstrained form
+    params_sample = sample_prior(subkey, props_prior, num_samples) # Here, output params are in mixed constrained/unconstrained form
                                                                 # The trainable params (given in prior by dist) are unconstrained
                                                                 # whereas the not-trainable params (given in prior by arrays) are constrained
                                                                 # In the trainer, the cond_params are appended to the dataset and then the params are converted
@@ -175,7 +178,7 @@ def sequential_posterior_sampling(
             prev_dataset = dataset, 
             lag = lag,
             num_timesteps = num_timesteps, 
-            props = props,
+            props_prior = props_prior,
             num_epochs = 20,
             learning_rate = 1 * 1e-4,
             verbose=False
@@ -185,11 +188,11 @@ def sequential_posterior_sampling(
         print("* Sampling new parameters")
 
         ## Pin logdensity function to the current model and emissions   
-        pin_logdensity_fn = partial(logdensity_fn, model=model, emissions=emissions, prior=prior, lag=lag)
+        pin_logdensity_fn = partial(logdensity_fn, model=model, emissions=emissions, prior=props_prior, lag=lag)
 
         ## Initialize MCMC chain and kernel
         key, subkey = jr.split(key)
-        initial_cond_params = to_train_array(sample_ssm_params(subkey, prior, 1)[0], props)
+        initial_cond_params = to_train_array(sample_ssm_params(subkey, props_prior, 1)[0], props_prior)
         taf_random_walk = blackjax.additive_step_random_walk(pin_logdensity_fn, blackjax.mcmc.random_walk.normal(rw_sigma))
         taf_initial_state = taf_random_walk.init(initial_cond_params)
         taf_kernel = jax.jit(taf_random_walk.step)
@@ -201,10 +204,10 @@ def sequential_posterior_sampling(
         params_sample = []
         print("* Adding new params")
         for cond_param in positions:
-            unravel_fn = get_unravel_fn(example_param, props)
+            unravel_fn = get_unravel_fn(example_param, props_prior)
             unravel = unravel_fn(cond_param)
             tree = tree_from_params(example_param)
-            new_tree = join_trees(unravel, tree, props)
+            new_tree = join_trees(unravel, tree, props_prior)
             param = params_from_tree(new_tree, param_names, is_constrained_tree)
             params_sample.append(param)
 

@@ -116,12 +116,17 @@ class MADEnet(nnx.Module):
                  din: int, 
                  dhidden: int, 
                  nhidden: int,
+                 act_fun: str,
                  dcond: int = 0,
                  rngs: nnx.Rngs = nnx.Rngs(0), 
                  random: bool=False, 
                  reverse: bool=False, 
                  batch_norm: bool=False,
                  dropout: bool=False):
+        try: 
+            act_fun = getattr(nnx, act_fun)
+        except:
+            raise ValueError(f"Activation function {act_fun} not found in nnx module")
         dout = 2 * din
         self.din, self.dhidden, self.nhidden = din, dhidden, nhidden
         degrees = create_degrees(rngs.split(), din, dhidden, nhidden, random, reverse)
@@ -133,7 +138,7 @@ class MADEnet(nnx.Module):
             self.layers.append(MaskedLinear(mask, d1, d2, rngs=rngs))
             if batch_norm: self.layers.append(nnx.BatchNorm(d2, rngs=rngs))
             if dropout: self.layers.append(nnx.Dropout(rate=0.1, rngs=rngs))
-            self.layers.append(nnx.relu)
+            self.layers.append(act_fun)
         out_mask = jnp.concatenate([masks[1], masks[1]], axis=1)
         self.layers.append(MaskedLinear(out_mask, dhidden, dout, rngs=rngs))
 
@@ -148,13 +153,14 @@ class MADE(nnx.Module):
                  din: int, 
                  dhidden: int, 
                  nhidden: int,
+                 act_fun: str,
                  dcond: int = 0,
                  rngs: nnx.Rngs = nnx.Rngs(0), 
                  random: bool=False, 
                  reverse:bool =False,
                  batch_norm: bool=False,
                  dropout: bool=False):
-        self.network = MADEnet(din, dhidden, nhidden, dcond, rngs, random, reverse, batch_norm, dropout)
+        self.network = MADEnet(din, dhidden, nhidden, act_fun, dcond, rngs, random, reverse, batch_norm, dropout)
         self.din = din
         self.dcond = dcond
         self.input_order = self.network.input_order
@@ -218,16 +224,17 @@ class MAF(nnx.Module):
                 nmade: int,
                 dhidden: int,
                 nhidden: int,
+                act_fun: str,
                 dcond : int = 0,
                 rngs: nnx.Rngs = nnx.Rngs(0),
-                random: bool = False,
+                random_order: bool = False,
                 reverse: bool = False,
                 batch_norm: bool = False,
                 dropout: bool = False):
         self.din, self.dcond, self.nmade, self.nhidden = din, dcond, nmade, nhidden
         self.layers = []
         for _ in range(nmade):
-            self.layers.append(MADE(din, dhidden, nhidden, dcond, rngs, random, reverse, batch_norm, dropout))
+            self.layers.append(MADE(din, dhidden, nhidden, act_fun, dcond, rngs, random_order, reverse, batch_norm, dropout))
             self.layers.append(BatchNormLayer(din, dcond))
 
     def __call__(self, x: jax.Array):

@@ -102,7 +102,7 @@ constrainers  = [[None, RealToPSDBijector],
                 [None, None, None, RealToPSDBijector],
                 [None, None, None, RealToPSDBijector]]
 
-props, prior = initialize(prior_fields, param_names, constrainers)
+props_prior = initialize(prior_fields, param_names, constrainers)
 
 seed = 121241278123  
 key = jr.PRNGKey(seed)  
@@ -115,15 +115,15 @@ for i in range(num_reps):
     # Sample ***true*** params and emissions
     key, subkey = jr.split(key)
     lgssm = LGSSM(state_dim, emission_dim)
-    [true_param, example_param] = sample_ssm_params(key, prior, 2)
-    true_param_vec = to_train_array(true_param, props)
-    true_param.from_unconstrained(props)
+    [true_param, example_param] = sample_ssm_params(key, props_prior, 2)
+    true_param_vec = to_train_array(true_param, props_prior)
+    true_param.from_unconstrained(props_prior)
     states, emissions = lgssm.simulate(subkey, true_param, num_timesteps)
 
     print(f"------------------ TAF ")
     ## Initialize TAF model
     din = emission_dim
-    n_params = to_train_array(example_param, props).shape[0]
+    n_params = to_train_array(example_param, props_prior).shape[0]
     dcond = lag * emission_dim + n_params
     key, subkey = jr.split(key)
     taf = MAF(din, nmades, dhidden, nhidden, dcond, nnx.Rngs(subkey), random_order, reverse, batch_norm, dropout)
@@ -140,8 +140,7 @@ for i in range(num_reps):
                 num_samples=num_samples,
                 num_mcmc_steps=num_mcmc_steps,
                 emissions=emissions,
-                prior=prior,
-                props=props,
+                prior=props_prior,
                 example_param=example_param,
                 param_names=param_names,
                 is_constrained_tree=is_constrained_tree,

@@ -1,9 +1,9 @@
 import jax.numpy as jnp
 import jax.random as jr
-from jax import lax, vmap, debug
+from jax import lax, vmap
 from tensorflow_probability.substrates.jax.distributions import MultivariateNormalFullCovariance as MVN
 from typing import Optional
-from utils import resample, resample2
+from util.sample import resample
 from jaxtyping import Array, Float, Int
 from parameters import ParamSSM
 from ssm import SSM
