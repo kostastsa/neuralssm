@@ -37,17 +37,17 @@ def get_simulator(sim_desc):
     Given the description of a simulator, returns the simulator module.
     """
 
-    if sim_desc == 'mg1':
-        import simulators.mg1 as sim
+    if isinstance(sim_desc, ed.LGSSM_Descriptor):
+        from simulators import lgssm as sim
 
-    elif sim_desc == 'lotka_volterra':
-        import simulators.lotka_volterra as sim
+    # elif sim_desc == 'lotka_volterra':
+    #     import simulators.lotka_volterra as sim
 
-    elif sim_desc == 'gauss':
-        import simulators.gaussian as sim
+    # elif sim_desc == 'gauss':
+    #     import simulators.gaussian as sim
 
-    elif sim_desc == 'hodgkin_huxley':
-        import simulators.hodgkin_huxley as sim
+    # elif sim_desc == 'hodgkin_huxley':
+    #     import simulators.hodgkin_huxley as sim
 
     else:
         raise ValueError('unknown simulator')
@@ -57,7 +57,7 @@ def get_simulator(sim_desc):
 
 def get_root():
 
-    return 'data'
+    return '/Users/kostastsampourakis/Desktop/code/Python/projects/neuralssm/src/neuralssm/data'
 
 
 def find_epsilon(sims_loader, obs_xs, acc_rate, show_hist=True):

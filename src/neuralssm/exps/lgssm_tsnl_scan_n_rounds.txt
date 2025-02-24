@@ -1,0 +1,619 @@
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 1,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 2,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 3,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 4,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 5,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 6,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 7,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 8,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 9,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 10,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 11,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 12,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 13,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 14,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 15,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 16,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 17,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 18,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 19,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4_e2
+	},
+    inf: tsnl
+	{
+		model: maf
+        {
+            n_mades: 5,
+            d_hidden: 32,
+            n_hiddens: 5,
+            act_fun: relu,
+            random_order: False,
+            reverse: True,
+            batch_norm: False,
+            dropout: False
+        },
+        n_samples: 100,
+        n_rounds: 20,
+        lag: 7,
+        subsample: 0.1,
+        train_on: best,
+        mcmc_steps: 1000
+	}
+}

@@ -9,7 +9,7 @@ import tensorflow_probability.substrates.jax.distributions as tfd
 from tensorflow_probability.substrates.jax.distributions import MultivariateNormalFullCovariance as MVN
 from jax.tree_util import tree_map
 from jax import lax, vmap, debug
-from jax.scipy.special import factorial as fac, logsumexp as lse, gammaln
+from jax.scipy.special import logsumexp as lse, gammaln
 import jax.numpy as jnp
 import jax.random as jr
 from dynamax.types import PRNGKey # type: ignore
