@@ -275,7 +275,7 @@ class SPN(SSM):
         input_dim: int=0
     ):
         self.state_dim = state_dim # number of species
-        self.num_reactions = num_reactions 
+        self.num_reactions = num_reactions # number of reactions
         self.emission_dim = emission_dim # number of observables
         self.emission_fn = emission_fn # emission function
         self.input_dim = input_dim

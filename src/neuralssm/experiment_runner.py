@@ -16,7 +16,7 @@ from util.param import sample_prior, to_train_array
 from util.misc import kde_error
 
 from flax import nnx
-from density_models import MAF
+from maf.density_models import MAF
 
 import experiment_descriptor as ed
 import misc
@@ -124,7 +124,7 @@ class ExperimentRunner:
             num_simulations = counts * sim_desc.num_timesteps
             
             util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
-            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error.txt'))
+            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
             util.io.save(abc_runner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
@@ -185,7 +185,7 @@ class ExperimentRunner:
             num_simulations = inf_desc.num_prt * sim_desc.num_timesteps * inf_desc.mcmc_steps * inf_desc.num_iters
 
             util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
-            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error.txt'))
+            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
             util.io.save_txt(str(mcmc_runner.time), os.path.join(exp_dir, 'time.txt'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
@@ -249,13 +249,13 @@ class ExperimentRunner:
             num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
 
             util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
-            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error.txt'))
+            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error'))
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
             util.io.save(learner.all_emissions, os.path.join(exp_dir, 'all_emissions'))
             util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))
             util.io.save((posterior_sample, posterior_cond_sample), os.path.join(exp_dir, 'posterior'))
             util.io.save(learner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
-            util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples, -1), os.path.join(exp_dir, 'all_dists'))
+            util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples), os.path.join(exp_dir, 'all_dists'))
             util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
             util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
@@ -313,7 +313,7 @@ class ExperimentRunner:
             model = self._create_model(n_inputs, n_cond, key_model)
             learner = nde.SequentialNeuralLikelihood(props, ssm, lag=inf_desc.lag)
 
-            model, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
+            _, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
                 key=key_learner,
                 observations=obs_ys,
                 model=model,
@@ -336,6 +336,7 @@ class ExperimentRunner:
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
             util.io.save(learner.all_emissions, os.path.join(exp_dir, 'all_emissions'))
             util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))
+            util.io.save(learner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples), os.path.join(exp_dir, 'all_dists'))
             util.io.save((posterior_sample, posterior_cond_sample), os.path.join(exp_dir, 'posterior'))
             util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
