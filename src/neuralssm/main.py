@@ -223,6 +223,7 @@ def view_ensemble(args, show=True):
         bootstrap_errors, _ = util.misc.bootstrap(subkey, error_array, B)
         mean = jnp.mean(bootstrap_errors)
         std = jnp.std(bootstrap_errors)
+        num_sims = jnp.log(num_sims)
             
         if isinstance(exp_desc.inf, ed.ABC_Descriptor):
             abc.append([mean, std, num_sims, nfail])
