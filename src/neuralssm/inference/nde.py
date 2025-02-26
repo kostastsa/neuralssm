@@ -1,6 +1,6 @@
 from jax import numpy as jnp, random as jr, vmap
 import numpy as onp
-from density_models import MAF
+from maf.density_models import MAF
 from functools import partial
 from util.train import get_sds, subsample_fn, lag_ds, _get_data_loaders, train_step, logdensity_fn
 from util.param import  sample_prior
@@ -79,8 +79,6 @@ class SequentialNeuralLikelihood:
         key, subkey = jr.split(key)
         params_sample = sample_prior(subkey, self.props, num_samples)
         self.xparam = params_sample[0]    
-        # self.all_emissions = []
-        # self.all_cond_params = []
         self.all_params = []
         self.time_all_rounds = []
 

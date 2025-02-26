@@ -127,9 +127,28 @@ def bootstrap(key, rmse_array, B):
     boot_samples = jnp.stack(boot_samples, axis=0)
     return rmse_boot, boot_samples
 
+
 def compute_distances(emissions, observations, num_timesteps, emission_dim):
     
     distances = vmap(lambda sim_emissions: jnp.linalg.norm(observations - sim_emissions) / jnp.sqrt(num_timesteps * emission_dim))(emissions)
 
     return distances
 
+
+def clear_nans(errors):
+    means = errors[:, 0]
+    stds = errors[:, 1]
+    nsims = errors[:, 2]
+    nans_infs = jnp.isnan(means) + jnp.isinf(means)
+    means = means[~nans_infs]
+    stds = stds[~nans_infs]
+    nsims = jnp.log(nsims[~nans_infs])
+    
+    nfail = jnp.sum(nans_infs)
+    success_pct = (1 - nfail / errors.size)
+    errors = errors[~jnp.isnan(errors)]
+    errors = errors[~jnp.isinf(errors)]
+
+    out = jnp.array([means, stds, nsims]).T
+
+    return out, nfail, success_pct

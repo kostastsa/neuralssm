@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import orbax.checkpoint as ocp
 
 from flax import nnx
-from density_models import MAF
+from maf.density_models import MAF
 import jax.random as jr
 
 import util.plot

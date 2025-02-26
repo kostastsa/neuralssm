@@ -2,8 +2,8 @@ from flax import nnx
 import jax.numpy as jnp
 import jax.random as jr
 import jax
-from masks import create_masks, create_degrees, create_masks2, create_degrees2
-from layers import BatchNormLayer, MaskedLinear
+from .masks import create_masks, create_degrees, create_masks2, create_degrees2
+from .layers import BatchNormLayer, MaskedLinear
 
 
 ### MADE IMPLEMENTATION 2 (Implements conditional with full dependencies)
