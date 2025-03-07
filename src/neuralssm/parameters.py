@@ -49,7 +49,6 @@ class ParameterProperties:
     def __repr__(self):
         return f"ParameterProperties(trainable={self.trainable}, constrainer={self.constrainer})"
 
-#################################### NEW CLASS ###############################
 
 class ParamNode():
         
@@ -151,7 +150,10 @@ class ParamSSM():
                     constrainer = props_subfield.props.constrainer
                     setattr(subfield, 'is_constrained', True)
                     if constrainer is not None:
-                        setattr(subfield, 'value', constrainer()(subfield.value))
+                        if isinstance(constrainer, tfb.Exp):
+                            setattr(subfield, 'value', constrainer.forward(subfield.value))
+                        else:
+                            setattr(subfield, 'value', constrainer()(subfield.value))
 
     def _get_names(self):
         names_tree = []

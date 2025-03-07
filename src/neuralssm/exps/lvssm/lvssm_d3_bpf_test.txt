@@ -1,0 +1,16 @@
+experiment
+{
+    sim: lvssm
+    {
+        emission_dim: 1,
+        num_timesteps: 100,
+        dt_obs: 1.0,
+        target_vars: d3
+    },
+    inf: bpf_mcmc
+    {
+        num_prt: 100,
+        num_iters: 1,
+        mcmc_steps: 10000
+    }
+}

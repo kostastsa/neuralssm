@@ -1,4 +1,4 @@
-from jax import numpy as jnp, random as jr, vmap
+from jax import numpy as jnp, random as jr, vmap, debug
 import numpy as onp
 from maf.density_models import MAF
 from functools import partial
@@ -64,7 +64,7 @@ class SequentialNeuralLikelihood:
                         batch_size: int = 128,
                         num_epochs: int = 20,
                         learning_rate: float = 1 * 1e-4,
-                        rw_sigma=0.1,
+                        rw_sigma=0.5,
                         logger = None,
                         num_tiles=None,
                         subsample=False,
@@ -88,16 +88,17 @@ class SequentialNeuralLikelihood:
             logger.write('----------------------------------\n')
             logger.write('Learning MAF likelihood, round {0}\n'.format(r + 1))
             logger.write('----------------------------------\n')
-            logger.write('---------seting up datasets\n')
+
+            logger.write('---------setting up datasets\n')
 
             # Sample emissions and create dataset
             key, subkey = jr.split(key)
-            new_sds = get_sds(subkey, self, num_samples, params_sample, num_timesteps)
-            cond_params, emissions = new_sds   
+            new_sds = get_sds(subkey, logger, self, num_samples, params_sample, num_timesteps)
+            cond_params, emissions = new_sds
             dists = compute_distances(emissions, observations, num_timesteps, self.ssm.emission_dim)
 
             if r == 0:
-                
+
                 sds = new_sds
                 all_emissions = emissions
                 all_cond_params = cond_params
@@ -118,12 +119,10 @@ class SequentialNeuralLikelihood:
                     sds = (all_cond_params, all_emissions)
 
                 elif train_on == 'best':
-                    
                     weights = jnp.exp(-all_dists)
                     weights /= jnp.sum(weights)
                     key, subkey = jr.split(key)
                     idx = jr.choice(subkey, jnp.arange(all_emissions.shape[0]), shape=(num_samples,), p=weights, replace=False)
-                    # idx = jnp.argsort(weights)[-num_samples:]
                     best_emissions = jnp.take(all_emissions, idx, axis=0)
                     best_cond_params = jnp.take(all_cond_params, idx, axis=0)
                     sds = (best_cond_params, best_emissions)
@@ -138,14 +137,21 @@ class SequentialNeuralLikelihood:
                     dataset = subsample_fn(subkey, dataset, num_tiles)
                 
             else:
-                cond_params, emissions = sds
-                dataset = jnp.concatenate([cond_params, emissions.reshape(num_samples, -1)], axis=1)
 
-            fin_dataset = onp.array(dataset.reshape(-1, dataset.shape[-1]))
+                cond_params, emissions = sds
+                dataset = jnp.concatenate([cond_params, emissions.reshape(emissions.shape[0], -1)], axis=1)
+
+            logger.write('------------getting data loaders\n')
+
+            fin_dataset = onp.array(dataset)
+            fin_dataset = fin_dataset.reshape(-1, dataset.shape[-1])
             loaders = _get_data_loaders(fin_dataset, batch_size)
+
             logger.write('---------training model\n')
+
             optimizer = nnx.Optimizer(model, optax.adamw(learning_rate, weight_decay=1e-6)) 
             model = self.train_model(model, optimizer, loaders, num_epochs)
+
             logger.write('---------sampling new parameters\n')
 
             # Sample new parameters using trained likelihood and MCMC
@@ -153,9 +159,9 @@ class SequentialNeuralLikelihood:
             key, subkey = jr.split(key)
             params_sample, _ = sample_logpdf(key=subkey, learner=self, logdensity_fn=plogpdf, num_samples=num_samples, num_mcmc_steps=mcmc_steps, rw_sigma=rw_sigma)
             self.all_params.append(params_sample)
-
             tout = time.time()
             self.time_all_rounds.append(tout-tin)
+
             logger.write('---------time: {:.2f}\n'.format(tout-tin))
 
         self.all_dists = all_dists

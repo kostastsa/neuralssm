@@ -1,0 +1,19 @@
+experiment
+{
+    sim: sirssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+		dt_obs: 0.1,
+        target_vars: d4
+	},
+	inf: smc_abc
+	{
+		n_samples: 200,
+		max_nsims: 1000,
+		eps_init: 10.0,
+		eps_last: 1.8,
+		eps_decay: 0.9
+	}
+}

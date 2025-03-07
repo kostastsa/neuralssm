@@ -5,6 +5,25 @@ import jax.random as jr
 import jax
 
 
+def relu(x):
+    return jnp.maximum(0, x)
+
+
+activations = {
+    'relu': relu,
+    'tanh': jnp.tanh,
+    'sigmoid': jax.nn.sigmoid,
+}
+
+
+class MaskInitializer:
+    def __init__(self, mask):
+        self.mask = mask  # Store mask
+
+    def __call__(self):
+        return self.mask  # Return mask when called
+
+
 class MaskedLinear(nnx.Module):
   def __init__(self, mask, din: int, dout: int, *, rngs: nnx.Rngs):
     key = rngs.params()
@@ -12,12 +31,13 @@ class MaskedLinear(nnx.Module):
     self.w = nnx.Param(jr.uniform(key, (din, dout), minval=-1/std, maxval=1/std))
     self.b = nnx.Param(jnp.zeros((dout,)))
     self.din, self.dout = din, dout
-    self.mask = nn.Variable(None, "constants", "mask", lambda: mask)
+    self.mask = nn.Variable(None, "constants", "mask", MaskInitializer(mask))
 
   def __call__(self, x: jax.Array):
     w = jnp.asarray(self.w)  # Convert self.w to a standard JAX array
     b = jnp.asarray(self.b)
     return x @ jnp.multiply(self.mask.unbox(), w)+ b
+
 
 class BatchNormLayerv2(nnx.Module):
     def __init__(self, din, dcond=0, eps=1e-5):
@@ -71,6 +91,7 @@ class BatchNormLayerv2(nnx.Module):
         # print("setting batch stats for validation")
         self.batch_mean = jnp.mean(x, axis=0)
         self.batch_var = jnp.var(x, axis=0) + self.eps
+
 
 class BatchNormLayer(nnx.Module):
     """

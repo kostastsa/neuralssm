@@ -26,6 +26,15 @@ class SimulatorDescriptor:
 
         if re.match('lgssm', str):
             return LGSSM_Descriptor(str)
+        
+        elif re.match('lvssm', str):
+            return LVSSM_Descriptor(str)
+
+        elif re.match('svssm', str):
+            return SVSSM_Descriptor(str)
+        
+        elif re.match('sirssm', str):
+            return SIRSSM_Descriptor(str)
 
         else:
             raise ParseError(str)
@@ -41,7 +50,6 @@ class LGSSM_Descriptor(SimulatorDescriptor):
         self.num_timesteps = None
         self.target_vars = None
         self.parse(str)
-
 
     def pprint(self):
 
@@ -71,6 +79,133 @@ class LGSSM_Descriptor(SimulatorDescriptor):
     def get_dir(self):
 
         return os.path.join('lgssm', 'state-dim_{0}_emission-dim_{1}_num-timesteps_{2}_target-vars_{3}'.format(self.state_dim, self.emission_dim, self.num_timesteps, '_'.join(self.target_vars)))
+
+
+class LVSSM_Descriptor(SimulatorDescriptor):
+    
+    def __init__(self, str):
+
+        self.state_dim = 2
+        self.input_dim = 0
+        self.emission_dim = None
+        self.num_timesteps = None
+        self.dt_obs = None
+        self.target_vars = None
+        self.parse(str)
+
+    def pprint(self):
+
+        str = 'lvssm\n'
+        str += '\t{\n'
+        str += '\t\temission_dim: {0},\n'.format(self.emission_dim)
+        str += '\t\tnum_timesteps: {0},\n'.format(self.num_timesteps)
+        str += '\t\tdt_obs: {0},\n'.format(self.dt_obs)
+        str += '\t\ttarget_vars: {0}\n'.format('_'.join(self.target_vars))
+        str += '\t}'
+
+        return str
+
+    def parse(self, str):
+
+        str = util.misc.remove_whitespace(str)
+        m = re.match(r'lvssm\{emission_dim:(.*),num_timesteps:(.*),dt_obs:(.*),target_vars:(.*)\}\Z', str)
+
+        if m is None:
+            raise ParseError(str)
+
+        self.emission_dim = int(m.group(1))
+        self.num_timesteps = int(m.group(2))
+        self.dt_obs = float(m.group(3))
+        self.target_vars = m.group(4).split('_')
+
+    def get_dir(self):
+
+        return os.path.join('lvssm', 'emission-dim_{0}_num-timesteps_{1}_dt_obs_{2}_target-vars_{3}'.format(self.emission_dim, self.num_timesteps, self.dt_obs, '_'.join(self.target_vars)))
+
+
+class SVSSM_Descriptor(SimulatorDescriptor):
+    
+    def __init__(self, str):
+
+        self.state_dim = None
+        self.emission_dim = None
+        self.input_dim = 0
+        self.num_timesteps = None
+        self.target_vars = None
+        self.parse(str)
+
+    def pprint(self):
+
+        str = 'svssm\n'
+        str += '\t{\n'
+        str += '\t\tstate_dim: {0},\n'.format(self.state_dim)
+        str += '\t\temission_dim: {0},\n'.format(self.emission_dim)
+        str += '\t\tnum_timesteps: {0},\n'.format(self.num_timesteps)
+        str += '\t\ttarget_vars: {0}\n'.format('_'.join(self.target_vars))
+        str += '\t}'
+
+        return str
+
+    def parse(self, str):
+
+        str = util.misc.remove_whitespace(str)
+        m = re.match(r'svssm\{state_dim:(.*),emission_dim:(.*),num_timesteps:(.*),target_vars:(.*)\}\Z', str)
+
+        if m is None:
+            raise ParseError(str)
+
+        self.state_dim = int(m.group(1))
+        self.emission_dim = int(m.group(2))
+        self.num_timesteps = int(m.group(3))
+        self.target_vars = m.group(4).split('_')
+
+    def get_dir(self):
+
+        return os.path.join('svssm', 'state-dim_{0}_emission-dim_{1}_num-timesteps_{2}_target-vars_{3}'.format(self.state_dim, self.emission_dim, self.num_timesteps, '_'.join(self.target_vars)))
+
+
+class SIRSSM_Descriptor(SimulatorDescriptor):
+    
+    def __init__(self, str):
+
+        self.state_dim = 3
+        self.emission_dim = 1
+        self.input_dim = 0
+        self.num_timesteps = None
+        self.dt_obs = None
+        self.target_vars = None
+        self.parse(str)
+
+    def pprint(self):
+
+        str = 'sirssm\n'
+        str += '\t{\n'
+        str += '\t\tstate_dim: {0},\n'.format(self.state_dim)
+        str += '\t\temission_dim: {0},\n'.format(self.emission_dim)
+        str += '\t\tnum_timesteps: {0},\n'.format(self.num_timesteps)
+        str += '\t\tdt_obs: {0},\n'.format(self.dt_obs)
+        str += '\t\ttarget_vars: {0}\n'.format('_'.join(self.target_vars))
+        str += '\t}'
+
+        return str
+
+    def parse(self, str):
+
+        str = util.misc.remove_whitespace(str)
+        m = re.match(r'sirssm\{state_dim:(.*),emission_dim:(.*),num_timesteps:(.*),dt_obs:(.*),target_vars:(.*)\}\Z', str)
+
+        if m is None:
+            raise ParseError(str)
+
+        self.state_dim = int(m.group(1))
+        self.emission_dim = int(m.group(2))
+        self.num_timesteps = int(m.group(3))
+        self.dt_obs = float(m.group(4))
+        self.target_vars = m.group(5).split('_')
+
+    def get_dir(self):
+
+        return os.path.join('sirssm', 'state-dim_{0}_emission-dim_{1}_num-timesteps_{2}_dt_obs_{3}_target-vars_{4}'.format(self.state_dim, self.emission_dim, self.num_timesteps, self.dt_obs, '_'.join(self.target_vars)))
 
 
 class InferenceDescriptor:
@@ -109,6 +244,7 @@ class SMC_ABC_Descriptor(ABC_Descriptor):
     def __init__(self, str):
 
         self.n_samples = None
+        self.max_nsims = None
         self.eps_init = None
         self.eps_last = None
         self.eps_decay = None
@@ -119,6 +255,7 @@ class SMC_ABC_Descriptor(ABC_Descriptor):
         str = 'smc_abc\n'
         str += '\t{\n'
         str += '\t\tn_samples: {0},\n'.format(self.n_samples)
+        str += '\t\tmax_nsims: {0},\n'.format(self.max_nsims)
         str += '\t\teps_init: {0},\n'.format(self.eps_init)
         str += '\t\teps_last: {0},\n'.format(self.eps_last)
         str += '\t\teps_decay: {0}\n'.format(self.eps_decay)
@@ -129,20 +266,22 @@ class SMC_ABC_Descriptor(ABC_Descriptor):
     def parse(self, str):
 
         str = util.misc.remove_whitespace(str)
-        m = re.match(r'smc_abc\{n_samples:(.*),eps_init:(.*),eps_last:(.*),eps_decay:(.*)\}\Z', str)
+        m = re.match(r'smc_abc\{n_samples:(.*),max_nsims:(.*),eps_init:(.*),eps_last:(.*),eps_decay:(.*)\}\Z', str)
 
         if m is None:
             raise ParseError(str)
 
         self.n_samples = int(m.group(1))
-        self.eps_init = float(m.group(2))
-        self.eps_last = float(m.group(3))
-        self.eps_decay = float(m.group(4))
+        self.max_nsims = int(m.group(2))
+        self.eps_init = float(m.group(3))
+        self.eps_last = float(m.group(4))
+        self.eps_decay = float(m.group(5))
 
     def get_id(self, delim='_'):
 
         id = 'smcabc'
         id += delim + 'samples' + delim + str(self.n_samples)
+        id += delim + 'maxnsims' + delim + str(self.max_nsims)
         id += delim + 'epsinit' + delim + str(self.eps_init)
         id += delim + 'epslast' + delim + str(self.eps_last)
         id += delim + 'epsdecay' + delim + str(self.eps_decay)

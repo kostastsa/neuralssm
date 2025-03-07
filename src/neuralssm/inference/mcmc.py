@@ -10,6 +10,7 @@ from typing import Optional
 from util.sample import resample
 from jaxtyping import Array, Float, Int
 from parameters import ParamSSM
+from simulators.ssm import SPN
 from util.param import from_conditional, log_prior, sample_prior, to_train_array
 from util.misc import swap_axes_on_values
 from util.sample import mcmc_inference_loop
@@ -57,28 +58,27 @@ class BPF_MCMC:
             Posterior particle filtered.
         """
 
-        num_timesteps = len(observations)
+        num_timesteps = observations.shape[0]
 
         # Dynamics and emission functions
         inputs = inputs if inputs is not None else jnp.zeros((num_timesteps, self.ssm.input_dim))
-
         
         def _step(carry, t):
-            weights, ll, particles, key = carry
-            
+            weights, ll, prev_states, key = carry
+
             # Get parameters and inputs for time index t
             u = inputs[t]
             y = observations[t]
-
+            
             # Sample new particles 
             keys = jr.split(key, num_particles+1)
             next_key = keys[0]
-            map_sample_particles = vmap(self.ssm.dynamics_simulator, in_axes=(0,None,0,None))
-            new_particles = map_sample_particles(keys[1:], params, particles, u)
+            get_new_states = vmap(self.ssm.dynamics_simulator, in_axes=(0,None,0,None))
+            new_states = get_new_states(keys[1:], params, prev_states, u)
 
             # Compute weights 
-            map_log_prob = vmap(self.ssm.emission_log_prob, in_axes=(None,None,0,None))
-            lls = map_log_prob(params,y,new_particles,u)
+            get_lps = vmap(self.ssm.emission_log_prob, in_axes=(None,None,0,None))
+            lls = get_lps(params, y, new_states, u)
             lls -= jnp.max(lls)
             ls = jnp.exp(lls)
             weights = jnp.multiply(ls, weights)
@@ -87,14 +87,14 @@ class BPF_MCMC:
 
             # Resample if necessary
             resample_cond = 1.0 / jnp.sum(jnp.square(new_weights)) < ess_threshold * num_particles
-            weights, new_particles, next_key = lax.cond(resample_cond, resample, lambda *args: args, new_weights, new_particles, next_key)
+            weights, new_states, next_key = lax.cond(resample_cond, resample, lambda *args: args, new_weights, new_states, next_key)
 
             outputs = {
                 'weights':weights,
-                'particles':new_particles
+                'particles':new_states
             }
 
-            carry = (weights, ll, new_particles, next_key)
+            carry = (weights, ll, new_states, next_key)
 
             return carry, outputs
         
@@ -103,9 +103,18 @@ class BPF_MCMC:
         weights = jnp.ones(num_particles) / num_particles
         map_sample = vmap(MVN(loc=params.initial.mean.value, covariance_matrix=params.initial.cov.value).sample, in_axes=(None,0))
         particles = map_sample((), keys[1:])
-        carry = (weights, 0.0, particles, next_key)
 
-        out_carry, outputs =  lax.scan(_step, carry, jnp.arange(num_timesteps))
+        if isinstance(self.ssm, SPN):
+
+            states = jnp.pad(particles, ((0, 0), (1, 0)), mode='constant', constant_values=0)
+
+        else:
+
+            states = particles
+        
+        carry = (weights, 0.0, states, next_key)
+
+        out_carry, outputs = lax.scan(_step, carry, jnp.arange(num_timesteps))
         ll = out_carry[1]
         outputs = swap_axes_on_values(outputs)
     
@@ -120,11 +129,14 @@ class BPF_MCMC:
         
         params = from_conditional(self.xparam, self.props, cond_params)
         lps = []
+
         for _ in range(num_iters):
+
             key, subkey = jr.split(key)
             _, lp = self.bpf(params, emissions, num_prt, subkey)
             lp += log_prior(cond_params, self.props)
             lps.append(lp)
+
         return jnp.mean(jnp.array(lps))
     
     def run(self,
@@ -147,21 +159,20 @@ class BPF_MCMC:
         initial_param = sample_prior(subkey, self.props, 1)[0]
         self.xparam = initial_param
         initial_cond_params = to_train_array(initial_param, self.props)
+
         key, subkey = jr.split(key)
         logdensity_fn = partial(self.logdensity_fn, key=subkey, emissions=observations, num_prt=num_prt, num_iters=num_iters)
-
         bpf_random_walk = blackjax.additive_step_random_walk(logdensity_fn, blackjax.mcmc.random_walk.normal(rw_sigma))
         bpf_initial_state = bpf_random_walk.init(initial_cond_params)
         bpf_kernel = jit(bpf_random_walk.step)
 
         ### Run inference loop
-        mcmc_samples = mcmc_inference_loop(key, bpf_kernel, bpf_initial_state, mcmc_steps)
+        mcmc_samples, logpdfs = mcmc_inference_loop(key, bpf_kernel, bpf_initial_state, mcmc_steps)
 
         tout = time.time()
         self.time = tout-tin
-        logger.write(f'MCMC runtime: {tout-tin}\n')
         
-        return mcmc_samples[-num_posterior_samples:] 
+        return mcmc_samples[-num_posterior_samples:], logpdfs[-num_posterior_samples:]
     
 
 class MCMC_Sampler:
@@ -326,6 +337,7 @@ class SliceSampler(MCMC_Sampler):
 
         # show trace plot
         if show_info:
+
             fig, ax = plt.subplots(1, 1)
             ax.plot(L_trace)
             ax.set_ylabel('log probability')
@@ -351,6 +363,7 @@ class SliceSampler(MCMC_Sampler):
             rng.shuffle(order)
 
             for i in range(self.n_dims):
+
                 x[i], wi = self._sample_from_conditional(i, x[i], rng)
                 self.width[i] += (wi - self.width[i]) / (n + 1)
 

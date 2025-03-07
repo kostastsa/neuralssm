@@ -1,14 +1,14 @@
 experiment
 {
-	sim: lgssm
+	sim: lvssm
 	{
-		state_dim: 1,
 		emission_dim: 1,
-		num_timesteps: 100,
-		target_vars: e4
+		num_timesteps: 30,
+		dt_obs: 1.0,
+		target_vars: d3
 	},
 
-	inf: snl
+	inf: tsnl
 	{
 		model: maf
 		{
@@ -21,9 +21,12 @@ experiment
 			batch_norm: True,
 			dropout: True,
 		},
-		n_samples: 100,
+		n_samples: 1,
 		n_rounds: 5,
-		train_on: best,
+		lag: 10,
+		subsample: 1.0,
+		train_on: all,
 		mcmc_steps: 1000
 	}
 }
+

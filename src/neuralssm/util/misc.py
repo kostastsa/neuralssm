@@ -50,17 +50,19 @@ def prepare_cond_input(xy, dtype):
     return x, y, one_datapoint
 
 
-lup = {'00':'i1', '01':'i2', 
- '10':'d1', '11':'d2', '12':'d3', '13':'d4', 
- '20': 'e1', '21': 'e2', '22': 'e3', '23': 'e4'}
-lup_rev = {v: k for k, v in lup.items()}
+def look_up(name):
 
+    lu_field = {'i': '0', 'd': '1', 'e': '2'}
+    field_cd = lu_field[name[0]]
+    param_cd = str(int(name[1]) - 1)
+    
+    return field_cd + param_cd
 
 def get_bool_tree(target_vars, param_names):
     r"""Returns a tree of booleans with the same structure as target_vars.
     """
     is_target = []
-    target_vars = list(map(lambda var: lup_rev[var], target_vars))
+    target_vars = list(map(lambda var: look_up(var), target_vars))
     for i, field in enumerate(param_names):
         sub_is_target = []
         for j, _ in enumerate(field):
@@ -108,10 +110,16 @@ def kmeans(key, data, num_clusters, tol=1e-4):
 
 
 def kde_error(positions, true_cps):
+        
         kernel_points = positions.T
         kde = jss.gaussian_kde(kernel_points)
         error = -jnp.log(kde.evaluate(true_cps))
         return error
+
+
+def rms_error(cps, true_cps):
+
+    return jnp.linalg.norm(jnp.mean(cps, axis=0) - true_cps)
 
 
 def bootstrap(key, rmse_array, B):

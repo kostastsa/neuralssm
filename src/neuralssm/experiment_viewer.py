@@ -274,6 +274,7 @@ class ExperimentViewer:
         train_on = self.exp_desc.inf.train_on
         n_rounds = self.exp_desc.inf.n_rounds
         n_samples = self.exp_desc.inf.n_samples
+
         [_, true_cond_ps], obs_ys = util.io.load(os.path.join(exp_dir, 'gt'))
         all_cond_params = util.io.load(os.path.join(exp_dir, 'all_cond_params'))
         all_emissions = util.io.load(os.path.join(exp_dir, 'all_emissions'))
@@ -299,7 +300,7 @@ class ExperimentViewer:
 
         _, post_cps = posterior
         fig = util.plot.plot_hist_marginals(post_cps, lims=self.sim.get_disp_lims(), gt=true_cond_ps)
-        fig.suptitle('SNL posterior cond params')
+        fig.suptitle(f'SNL posterior, {post_cps.shape[0]} samples')
 
         fig_dir = os.path.join(exp_dir, 'figures')
 
