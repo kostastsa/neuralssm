@@ -5,14 +5,27 @@ import os
 import jax
 import jax.numpy as jnp
 
+from flax import nnx
+
 import gc
 import util.io
+from functools import partial
 
 import experiment_descriptor as ed
+import experiment_results as er
 import jax.random as jr
 import time
 import misc
 import util.misc
+from util.sample import sim_emissions, generate_emissions
+from util.param import sample_prior, to_train_array
+from inference.diagnostics.two_sample import sq_maximum_mean_discrepancy as mmd
+import matplotlib.pyplot as plt
+import matplotlib_inline # type: ignore
+import scienceplots # type: ignore
+
+plt.style.use(['science', 'ieee'])
+matplotlib_inline.backend_inline.set_matplotlib_formats('svg')
 
 fig_dir = '/Users/kostastsampourakis/Desktop/code/Python/projects/neuralssm/src/neuralssm/figures'
 
@@ -63,11 +76,17 @@ def parse_args():
     parser_grouped.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
     parser_grouped.set_defaults(func=view_grouped)
 
-    parser_plot_errors = subparsers.add_parser('plot_errors', help='plot error by variable and inference method')
-    parser_plot_errors.add_argument('start', type=int, help='# of first trial')
-    parser_plot_errors.add_argument('end', type=int, help='# of last trial')
-    parser_plot_errors.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
-    parser_plot_errors.set_defaults(func=plot_errors)
+    parser_errors = subparsers.add_parser('errors', help='plot error by variable and inference method')
+    parser_errors.add_argument('start', type=int, help='# of first trial')
+    parser_errors.add_argument('end', type=int, help='# of last trial')
+    parser_errors.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
+    parser_errors.set_defaults(func=eval_and_plot_errors)
+
+    parser_mmd = subparsers.add_parser('mmd', help='plot error by variable and inference method')
+    parser_mmd.add_argument('start', type=int, help='# of first trial')
+    parser_mmd.add_argument('end', type=int, help='# of last trial')
+    parser_mmd.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
+    parser_mmd.set_defaults(func=plot_mmd)
 
     parser_plot_by_var = subparsers.add_parser('plotvar', help='plot error by variable and inference method')
     parser_plot_by_var.add_argument('varname', type=str, help='variable to plot by')
@@ -138,14 +157,16 @@ def run_trials(args):
             key, subkey = jr.split(key)
 
             try:
+                
                 out = runner.run(trial=trial, sample_gt=True, key=subkey, seed=seed)
 
             except misc.AlreadyExistingExperiment:
+
                 print('EXPERIMENT ALREADY EXISTS')
 
             out = None
+            jax.clear_backends()
             gc.collect()
-            # jax.clear_backends()
 
     print('ALL DONE')
 
@@ -160,16 +181,21 @@ def view_results(args):
     exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
 
     if args.overwrite=='false':
+
         overwrite = False
+
     else:
+
         overwrite = True
 
     for exp_desc in exp_descs:
 
         try:
+
             ExperimentViewer(exp_desc, overwrite).view_results(trial=args.trial, block=args.block)
 
         except misc.NonExistentExperiment:
+
             print('EXPERIMENT DOES NOT EXIST')
 
 
@@ -185,14 +211,15 @@ def view_ensemble(args, show=True):
 
     exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
 
-    abc = []
-    bpf_mcmc = []
-    snl = []
-    tsnl = []
+    abc = er.ABC_Results()
+    mcmc = er.MCMC_Results()
+    snl = er.SNL_Results()
+    tsnl = er.TSNL_Results()
 
     for exp_desc in exp_descs:
         
         error_array = []
+        rmse_array = []
 
         for trial in range(args.start, args.end + 1):
 
@@ -204,14 +231,15 @@ def view_ensemble(args, show=True):
                 try:
                     print(exp_desc.pprint())
                     error, num_sims = util.io.load(os.path.join(exp_dir, 'error'))
+                    rmse = util.io.load(os.path.join(exp_dir, 'rmse'))
                     error_array.append(error)
+                    rmse_array.append(rmse)
 
                 except FileNotFoundError:
                     print('ERROR FILE NOT FOUND')
 
             except misc.AlreadyExistingExperiment:
                 print('TRIAL DOES NOT EXIST')
-
 
         B = 100
         key, subkey = jr.split(key)
@@ -224,67 +252,59 @@ def view_ensemble(args, show=True):
         mean = jnp.mean(bootstrap_errors)
         std = jnp.std(bootstrap_errors)
         num_sims = jnp.log(num_sims)
+
+        bootstrap_rmse, _ = util.misc.bootstrap(subkey, jnp.array(rmse_array), B)
+        mean_rmse = jnp.mean(bootstrap_rmse)
+        std_rmse = jnp.std(bootstrap_rmse)
             
         if isinstance(exp_desc.inf, ed.ABC_Descriptor):
-            abc.append([mean, std, num_sims, nfail])
+            abc.results.append([mean, std, mean_rmse, std_rmse, num_sims, nfail])
         
         elif isinstance(exp_desc.inf, ed.BPF_MCMC_Descriptor):
-            bpf_mcmc.append([mean, std, num_sims, nfail])
+            mcmc.results.append([mean, std, mean_rmse, std_rmse, num_sims, nfail])
 
         elif isinstance(exp_desc.inf, ed.SNL_Descriptor):
-            snl.append([mean, std, num_sims, nfail])
+            snl.results.append([mean, std, mean_rmse, std_rmse, num_sims, nfail])
 
         elif isinstance(exp_desc.inf, ed.TSNL_Descriptor):
-            tsnl.append([mean, std, num_sims, nfail])
+            tsnl.results.append([mean, std, mean_rmse, std_rmse, num_sims, nfail])
 
-    abc = jnp.array(abc)
-    bpf_mcmc = jnp.array(bpf_mcmc)
-    snl = jnp.array(snl)
-    tsnl = jnp.array(tsnl)
+    abc.make_jnp()
+    mcmc.make_jnp()
+    snl.make_jnp()
+    tsnl.make_jnp()
 
-    try:
-        nfail_avg = jnp.mean(abc[:, -1])
-        plt.plot(abc[:, 2], abc[:, 0], 'o-', markersize=5, label=f'SMC-ABC, failed={nfail_avg:.0f}/{args.end}')
-        plt.fill_between(abc[:, 2], abc[:,0]-abc[:, 1], abc[:, 0]+abc[:, 1], color='blue', alpha=0.2, label='Confidence Band')
+    fig, ax = plt.subplots(2, 1, figsize=(5, 5))
 
-    except IndexError:
+    for alg in [abc, mcmc, snl, tsnl]:
 
-        print('No ABC results to plot')
+        try:
 
-    try:
-       
-       nfail_avg = jnp.mean(bpf_mcmc[:, -1])
-       plt.plot(bpf_mcmc[:, 2], bpf_mcmc[:, 0], 's-', markersize=5, label=f'BPF-MCMC, failed={nfail_avg:.0f}/{args.end}')
-       plt.fill_between(bpf_mcmc[:, 2], bpf_mcmc[:, 0]-bpf_mcmc[:, 1], bpf_mcmc[:, 0]+bpf_mcmc[:, 1], color='orange', alpha=0.2)
+            nfail_avg = jnp.mean(alg.results[:, -1])
+            ax[0].plot(alg.results[:, 4], alg.results[:, 0], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=5, label=f'{alg.name}, failed={nfail_avg:.0f}/{args.end}')
+            ax[0].fill_between(alg.results[:, 4], alg.results[:,0]-alg.results[:, 1], alg.results[:, 0] + alg.results[:, 1], color=alg.color, alpha=0.05, hatch='//')
+            ax[0].set_title('Error vs num_sims')
+            ax[0].set_xlabel('log Number of simulations')
+            ax[0].set_ylabel('Error')
+            ax[0].legend()
 
-    except IndexError:
+            ax[1].plot(alg.results[:, 4], alg.results[:, 2], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=5, label=f'{alg.name}')
+            ax[1].fill_between(alg.results[:, 4], alg.results[:, 2]-alg.results[:, 3], alg.results[:, 2] + alg.results[:, 3], color=alg.color, alpha=0.05, hatch='x')
+            ax[1].set_title('RMSE vs num_sims')
+            ax[1].set_xlabel('log Number of simulations')
+            ax[1].set_ylabel('RMSE')
+            ax[1].legend()
 
-        print('No BPF-MCMC results to plot')
+        except IndexError:
 
-    try:
+            print(f'No {alg.name} results to plot')
 
-        nfail_avg = jnp.mean(snl[:, -1])
-        plt.plot(snl[:, 2], snl[:, 0], '^-', markersize=5, label=f'SNL, failed={nfail_avg:.0f}/{args.end}')
-        plt.fill_between(snl[:, 2], snl[:, 0]-snl[:, 1], snl[:, 0]+snl[:, 1], color='green', alpha=0.2)
+        except TypeError:
+            
+            print(f'{alg.name} has no results')
 
-    except IndexError:
+    fig.savefig(os.path.join(fig_dir, f'Error-num_sims ensemble.pdf'), format="pdf", dpi=800)
 
-        print('No SNL results to plot')
-
-    try:
-
-        nfail_avg = jnp.mean(tsnl[:, -1])
-        plt.plot(tsnl[:, 2], tsnl[:, 0], 'd-', markersize=5, label=f'T-SNL, failed={nfail_avg:.0f}/{args.end}')
-        plt.fill_between(tsnl[:, 2], tsnl[:, 0]-tsnl[:, 1], tsnl[:, 0]+tsnl[:, 1], color='red', alpha=0.2)
-
-    except IndexError:
-
-        print('No T-SNL results to plot')
-
-    plt.xlabel('log Number of simulations')
-    plt.ylabel('Error')
-    plt.legend()
-    plt.savefig(os.path.join(fig_dir, f'Error-num_sims ensemble.png'), )
     if show:
         plt.show()
 
@@ -450,12 +470,13 @@ def view_grouped(args, show=False):
         plt.show()
 
 
-def plot_errors(args, show=True):
+def eval_and_plot_errors(args, show=True):
     """
     Takes a set of experiments and line-plots the errors of each algorithm together.
     """
 
     from experiment_viewer import plt
+    from util.misc import kde_error, rms_error
 
     seed = int(time.time() * 1000)
     key = jr.PRNGKey(seed)
@@ -464,8 +485,10 @@ def plot_errors(args, show=True):
 
     for exp_desc in exp_descs:
 
-        # groups = {'abc': [], 'bpf_mcmc': [], 'snl': [], 'tsnl': []}
         error_trials = []
+        rmse_trials = []
+        inf_desc = exp_desc.inf
+        sim_desc = exp_desc.sim
 
         for trial in range(args.start, args.end + 1):
 
@@ -478,8 +501,38 @@ def plot_errors(args, show=True):
 
                 try:
 
-                    error, _ = util.io.load(os.path.join(exp_dir, 'error'))
+                    (_, true_cps), _ = util.io.load(os.path.join(exp_dir, 'gt'))
+
+                    if isinstance(inf_desc, ed.ABC_Descriptor):
+                        results = util.io.load(os.path.join(exp_dir, 'results'))
+                        # samples, _, _, _, counts, _, _ = results
+                        samples, weights, counts = results
+                        error = kde_error(samples, true_cps)
+                        rmse = rms_error(samples, true_cps)
+                        num_simulations = counts * sim_desc.num_timesteps
+
+                    elif isinstance(inf_desc, ed.BPF_MCMC_Descriptor):
+                        mcmc_samples, _ = util.io.load(os.path.join(exp_dir, 'results'))
+                        error = kde_error(mcmc_samples, true_cps)
+                        rmse = rms_error(mcmc_samples, true_cps)
+                        num_simulations = inf_desc.num_prt * sim_desc.num_timesteps * inf_desc.mcmc_steps * inf_desc.num_iters
+
+                    elif isinstance(inf_desc, ed.SNL_Descriptor):
+                        _, posterior_cond_sample = util.io.load(os.path.join(exp_dir, 'posterior'))
+                        error = kde_error(posterior_cond_sample, true_cps)
+                        rmse = rms_error(posterior_cond_sample, true_cps)
+                        num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
+
+                    elif isinstance(inf_desc, ed.TSNL_Descriptor):
+                        _, posterior_cond_sample = util.io.load(os.path.join(exp_dir, 'posterior'))
+                        error = kde_error(posterior_cond_sample, true_cps)
+                        rmse = rms_error(posterior_cond_sample, true_cps)
+                        num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
+
+                    util.io.save((error, num_simulations), os.path.join(exp_dir, 'error'))
+                    util.io.save(rmse, os.path.join(exp_dir, 'rmse'))
                     error_trials.append(error)
+                    rmse_trials.append(rmse)
 
                 except FileNotFoundError:
                     print('ERROR FILE NOT FOUND')
@@ -525,26 +578,51 @@ def plot_errors(args, show=True):
                 error_avg = jnp.mean(bootstrap_error)
                 error_std = jnp.std(bootstrap_error)
 
-                fig, ax = plt.subplots(2, 1, figsize=(10, 10))
-                ax[0].hist(error_trials, bins=50, alpha=0.5, label=f'{label}', density=True)
-                ax[0].axvline(error_avg, color='green', linestyle='dashed', linewidth=0.5)
-                ax[0].axvline(error_avg - error_std, color='gray', linestyle='dotted', linewidth=0.25)
-                ax[0].axvline(error_avg + error_std, color='gray', linestyle='dotted', linewidth=0.25)
-                ax[0].set_xlabel('Error')
-                ax[0].set_ylabel('Count')
-                ax[0].set_title(f'{label} - Error histogram %')
-                ax[0].legend(prop={'size': 5})
+                fig, ax = plt.subplots(2, 2, figsize=(20, 10))
 
-                ax[1].plot(error_trials, '-o', markersize=1, label=f'{label}')
-                ax[1].axhline(error_avg, color='green', linestyle='dashed', linewidth=0.5, label=f'mean={error_avg:.2f}')
-                ax[1].axhline(error_avg - error_std, color='gray', linestyle='dotted', linewidth=0.25)
-                ax[1].axhline(error_avg + error_std, color='gray', linestyle='dotted', linewidth=0.25)
-                ax[1].set_xlabel('Trial')
-                ax[1].set_ylabel('Error')
-                ax[1].set_title(f'{label} Error plot - Success Rate: {args.end-nfail}/{args.end}')
-                ax[1].legend(prop={'size':5})
+                ax[0, 0].hist(error_trials, bins=50, alpha=0.5, label=f'{label}', density=True)
+                ax[0, 0].axvline(error_avg, color='green', linestyle='dashed', linewidth=0.5)
+                ax[0, 0].axvline(error_avg - error_std, color='gray', linestyle='dotted', linewidth=0.25)
+                ax[0, 0].axvline(error_avg + error_std, color='gray', linestyle='dotted', linewidth=0.25)
+                ax[0, 0].set_xlabel('-logprob')
+                ax[0, 0].set_ylabel('count')
+                ax[0, 0].set_title(f'{label} - Error histogram %')
+                ax[0, 0].legend(prop={'size': 5})
+
+                ax[1, 0].plot(error_trials, '-o', markersize=1, label=f'{label}')
+                ax[1, 0].axhline(error_avg, color='green', linestyle='dashed', linewidth=0.5, label=f'mean={error_avg:.2f}')
+                ax[1, 0].axhline(error_avg - error_std, color='gray', linestyle='dotted', linewidth=0.25)
+                ax[1, 0].axhline(error_avg + error_std, color='gray', linestyle='dotted', linewidth=0.25)
+                ax[1, 0].set_xlabel('trial')
+                ax[1, 0].set_ylabel('-logprob')
+                ax[1, 0].set_title(f'{label} Error plot - Success Rate: {args.end-nfail}/{args.end}')
+                ax[1, 0].legend(prop={'size':5})
+
+                bootstrap_rmse, _ = util.misc.bootstrap(subkey, jnp.array(rmse_trials), B)
+                rmse_avg = jnp.mean(bootstrap_rmse)
+                rmse_std = jnp.std(bootstrap_rmse)
+
+                ax[0, 1].hist(rmse_trials, bins=50, alpha=0.5, label=f'{label}', density=True)
+                ax[0, 1].axvline(rmse_avg, color='green', linestyle='dashed', linewidth=0.5)
+                ax[0, 1].axvline(rmse_avg - rmse_std, color='gray', linestyle='dotted', linewidth=0.25)
+                ax[0, 1].axvline(rmse_avg + rmse_std, color='gray', linestyle='dotted', linewidth=0.25)
+                ax[0, 1].set_xlabel('RMSE')
+                ax[0, 1].set_ylabel('Count')
+                ax[0, 1].set_title(f'{label} - RMSE histogram %')
+                ax[0, 1].legend(prop={'size': 5})
+
+                ax[1, 1].plot(rmse_trials, '-o', markersize=1, label=f'{label}')
+                ax[1, 1].axhline(rmse_avg, color='green', linestyle='dashed', linewidth=0.5, label=f'mean={rmse_avg:.2f}')
+                ax[1, 1].axhline(rmse_avg - rmse_std, color='gray', linestyle='dotted', linewidth=0.25)
+                ax[1, 1].axhline(rmse_avg + rmse_std, color='gray', linestyle='dotted', linewidth=0.25)
+                ax[1, 1].set_xlabel('Trial')
+                ax[1, 1].set_ylabel('RMSE')
+                ax[1, 1].set_title(f'{label} RMSE plot - Success Rate: {args.end-nfail}/{args.end}')
+                ax[1, 1].legend(prop={'size':5})
 
                 fig.savefig(os.path.join(f'{exp_root}', f'Error plots.png'))
+                # fig.savefig(os.path.join(f'{exp_root}', f'Error plots.eps'))
+
 
         except FileNotFoundError:
 
@@ -746,9 +824,104 @@ def plot_dist(args, show=False):
         plt.ylabel('distance')
         plt.legend(prop={'size': 5})
         plt.savefig(os.path.join(f'{exp_root}', 'distance_round.png'))
+
         if show: 
             plt.show()
 
+def plot_mmd(args, show=True):
+    """
+    Plots the mmd between the samples from the true model and samples from the learned model.
+    """
+
+    from experiment_viewer import plt
+
+    seed = int(time.time() * 1000)
+    key = jr.PRNGKey(seed)
+    num_samples = 10
+    exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
+
+    for exp_desc in exp_descs:
+
+        sim = misc.get_simulator(exp_desc.sim)
+        sim_desc = exp_desc.sim
+        inf_desc = exp_desc.inf
+        sim_setup = sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+        mmd_trials = []
+        fig1, ax = plt.subplots(args.end, 1, figsize=(5, args.end*5))
+
+        for trial in range(args.start, args.end + 1):
+
+            print(exp_desc.pprint())
+
+            try:
+
+                exp_root = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
+                exp_dir = exp_root + '/' + str(trial)
+
+                try:
+
+                    graphdef, state = util.io.load(os.path.join(exp_dir, 'model'))
+                    (true_ps, true_cps), observations = util.io.load(exp_dir + '/gt')
+
+                except FileNotFoundError:
+                    print('MODEL FILE NOT FOUND')
+
+                model = nnx.merge(graphdef, state)
+                ssm = sim_setup['ssm']
+
+                if isinstance(exp_desc.inf, ed.SNL_Descriptor):
+
+                    key, subkey = jr.split(key)
+                    est_sample = generate_emissions(key, sim_desc.emission_dim, model, true_cps, num_samples, -1, sim_desc.num_timesteps)
+
+                elif isinstance(exp_desc.inf, ed.TSNL_Descriptor):
+
+                    key, subkey = jr.split(key)
+                    est_sample = generate_emissions(key, sim_desc.emission_dim, model, true_cps, num_samples, inf_desc.lag, sim_desc.num_timesteps)
+
+                key, subkey = jr.split(key)
+                keys = jr.split(key, num_samples)
+                fn = partial(sim_emissions, param=true_ps, ssm=ssm, num_timesteps=sim_desc.num_timesteps)
+                true_sample = jnp.array(list(map(fn, keys)))
+                mmd_error = mmd(est_sample.squeeze(), true_sample.squeeze())
+                mmd_trials.append(mmd_error)
+
+                if sim_desc.emission_dim == 1:
+
+                    for e in est_sample:
+
+                        ax[trial-1].plot(e, 'o-', markersize=5, label='samples')
+
+                    ax[trial-1].plot(observations, 'o-', markersize=5, label='observations')
+                    ax[trial-1].set_title(f'Trial {trial}')
+                    ax[trial-1].legend()
+
+            except misc.AlreadyExistingExperiment:
+                print('TRIAL DOES NOT EXIST')
+
+            util.io.save(mmd_error, os.path.join(exp_dir, 'mmd'))
+
+        mmd_trials = jnp.array(mmd_trials)
+        
+        B = 100
+        key, subkey = jr.split(key)
+        _, boot_sample = util.misc.bootstrap(subkey, mmd_trials, B)
+        mean_dist = jnp.mean(boot_sample, axis=0)
+
+        fig2, ax2 = plt.subplots(1, 1, figsize=(5, 5))
+        ax2.plot(mean_dist, 'o-', markersize=5, label='mean')
+        ax2.set_xlabel('trial') 
+        ax2.set_ylabel('MMD')
+        ax2.legend(prop={'size': 5})
+
+        fig2.savefig(os.path.join(f'{exp_root}', 'mmd.png'))
+
+        if sim_desc.emission_dim == 1:
+
+            fig1.savefig(os.path.join(f'{exp_root}', 'samples.png'))
+
+        if show: 
+            plt.show()
 
 def print_log(args):
     """

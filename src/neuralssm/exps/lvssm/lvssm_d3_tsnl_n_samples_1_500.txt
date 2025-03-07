@@ -1,0 +1,187 @@
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 30,
+		dt_obs: 1.0,
+		target_vars: d3
+	},
+
+	inf: tsnl
+	{
+		model: maf
+		{
+			n_mades: 5,
+			d_hidden: 32,
+			n_hiddens: 5,
+			act_fun: relu,
+			random_order: True,
+			reverse: True,
+			batch_norm: True,
+			dropout: True,
+		},
+		n_samples: 1,
+		n_rounds: 5,
+		lag: 10,
+		subsample: 1.0,
+		train_on: all,
+		mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 30,
+		target_vars: d3
+	},
+
+	inf: tsnl
+	{
+		model: maf
+		{
+			n_mades: 5,
+			d_hidden: 32,
+			n_hiddens: 5,
+			act_fun: relu,
+			random_order: True,
+			reverse: True,
+			batch_norm: True,
+			dropout: True,
+		},
+		n_samples: 10,
+		n_rounds: 5,
+		lag: 10,
+		subsample: 1.0,
+		train_on: all,
+		mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 30,
+		target_vars: d3
+	},
+
+	inf: tsnl
+	{
+		model: maf
+		{
+			n_mades: 5,
+			d_hidden: 32,
+			n_hiddens: 5,
+			act_fun: relu,
+			random_order: True,
+			reverse: True,
+			batch_norm: True,
+			dropout: True,
+		},
+		n_samples: 50,
+		n_rounds: 5,
+		lag: 10,
+		subsample: 1.0,
+		train_on: all,
+		mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 30,
+		target_vars: d3
+	},
+
+	inf: tsnl
+	{
+		model: maf
+		{
+			n_mades: 5,
+			d_hidden: 32,
+			n_hiddens: 5,
+			act_fun: relu,
+			random_order: True,
+			reverse: True,
+			batch_norm: True,
+			dropout: True,
+		},
+		n_samples: 100,
+		n_rounds: 5,
+		lag: 10,
+		subsample: 1.0,
+		train_on: best,
+		mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 30,
+		target_vars: d3
+	},
+
+	inf: tsnl
+	{
+		model: maf
+		{
+			n_mades: 5,
+			d_hidden: 32,
+			n_hiddens: 5,
+			act_fun: relu,
+			random_order: True,
+			reverse: True,
+			batch_norm: True,
+			dropout: True,
+		},
+		n_samples: 250,
+		n_rounds: 5,
+		lag: 10,
+		subsample: 1.0,
+		train_on: best,
+		mcmc_steps: 1000
+	}
+}
+
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 30,
+		target_vars: d3
+	},
+
+	inf: tsnl
+	{
+		model: maf
+		{
+			n_mades: 5,
+			d_hidden: 32,
+			n_hiddens: 5,
+			act_fun: relu,
+			random_order: True,
+			reverse: True,
+			batch_norm: True,
+			dropout: True,
+		},
+		n_samples: 500,
+		n_rounds: 5,
+		lag: 10,
+		subsample: 1.0,
+		train_on: best,
+		mcmc_steps: 1000
+	}
+}
+

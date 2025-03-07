@@ -1,27 +1,26 @@
 # This module is adapted from the repository ([https://github.com/gpapamak/snl.git]),
 # authored by George Papamakarios under the MIT License
 import jax 
-from jax import numpy as jnp 
 from jax import random as jr # type: ignore
-import orbax.checkpoint as ocp
-
 import os
-import shutil
 import gc
-
 import util.plot
 import util.io
 import util.math
-from util.param import sample_prior, to_train_array
-from util.misc import kde_error
-
+from util.param import sample_prior, to_train_array, get_unravel_fn, tree_from_params, join_trees, params_from_tree
 from flax import nnx
 from maf.density_models import MAF
-
 import experiment_descriptor as ed
 import misc
-
+import time
 import inspect
+
+import matplotlib.pyplot as plt
+import matplotlib_inline # type: ignore
+import scienceplots # type: ignore
+
+plt.style.use(['science', 'ieee'])
+matplotlib_inline.backend_inline.set_matplotlib_formats('svg')
 
 class ExperimentRunner:
     """
@@ -73,7 +72,10 @@ class ExperimentRunner:
                 raise TypeError('unknown inference descriptor')
 
         except:
-            shutil.rmtree(exp_dir)
+
+            print('EXPERIMENT FAILED')
+            # shutil.rmtree(exp_dir)
+
             raise
 
     def _run_abc(self, exp_dir, sample_gt, key, seed):
@@ -86,19 +88,38 @@ class ExperimentRunner:
         inf_desc = self.exp_desc.inf
         sim_desc = self.exp_desc.sim
         param_info = self.sim.get_param_info()
-        sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+
+        if hasattr(sim_desc, 'dt_obs'):
+            
+            sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars, sim_desc.dt_obs)
+
+        else:
+
+            sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+
         ssm = sim_setup['ssm']
         props = sim_setup['props']
         inputs = sim_setup['inputs']
         
         if sample_gt:
+
             key, subkey = jr.split(key)
             true_ps = sample_prior(key, props)[0]
             true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
-            _, obs_ys = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
+
         else:
-            true_ps, obs_ys = self.sim.get_ground_truth()
+            
+            true_ps, observations = self.sim.get_ground_truth()
+
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        ax.plot(states, label='States')
+        ax.plot(observations, label='Observations')
+        ax.legend()
+        ax.set_title('Observations')
+        plt.savefig(os.path.join(exp_dir, 'observations.png'))
+        plt.close(fig)
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
@@ -108,7 +129,7 @@ class ExperimentRunner:
 
                 results = abc_runner.run(
                     key,
-                    obs_ys,
+                    observations,
                     eps_init=inf_desc.eps_init,
                     eps_last=inf_desc.eps_last,
                     eps_decay=inf_desc.eps_decay,
@@ -119,12 +140,7 @@ class ExperimentRunner:
             else:
                 raise TypeError('unknown ABC algorithm')
             
-            samples, _, _, _, counts, _, _ = results
-            error = kde_error(samples[-1], true_cps)
-            num_simulations = counts * sim_desc.num_timesteps
-            
-            util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
-            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error'))
+            util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
             util.io.save(abc_runner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
@@ -147,19 +163,39 @@ class ExperimentRunner:
         inf_desc = self.exp_desc.inf
         sim_desc = self.exp_desc.sim
         param_info = self.sim.get_param_info()
-        sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+
+        if hasattr(sim_desc, 'dt_obs'):
+            
+            sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars, sim_desc.dt_obs)
+
+        else:
+
+            sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+
         ssm = sim_setup['ssm']
         props = sim_setup['props']
         inputs = sim_setup['inputs']
+        tin = time.time()
+
         if sample_gt:
+
             key, subkey = jr.split(key)
             true_ps = sample_prior(key, props)[0]
             true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
-            _, obs_ys = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
 
         else:
-            true_ps, obs_ys = self.sim.get_ground_truth()
+            
+            true_ps, observations = self.sim.get_ground_truth()
+    
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        ax.plot(states, label='States')
+        ax.plot(observations, label='Observations')
+        ax.legend()
+        ax.set_title('Observations')
+        plt.savefig(os.path.join(exp_dir, 'observations.png'))
+        plt.close(fig)
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
@@ -169,7 +205,7 @@ class ExperimentRunner:
 
                 results = mcmc_runner.run(
                     key,
-                    obs_ys,
+                    observations,
                     num_prt = inf_desc.num_prt,
                     num_posterior_samples=n_post_samples,
                     mcmc_steps = inf_desc.mcmc_steps,
@@ -180,12 +216,11 @@ class ExperimentRunner:
             else:
 
                 raise TypeError('unknown PRT_MCMC algorithm')
+            
+            tout = time.time()
+            logger.write('Total time: {0}'.format(tout - tin))
 
-            error = kde_error(results[0], true_cps)
-            num_simulations = inf_desc.num_prt * sim_desc.num_timesteps * inf_desc.mcmc_steps * inf_desc.num_iters
-
-            util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
-            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error'))
+            util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
             util.io.save_txt(str(mcmc_runner.time), os.path.join(exp_dir, 'time.txt'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
@@ -208,33 +243,63 @@ class ExperimentRunner:
         inf_desc = self.exp_desc.inf
         sim_desc = self.exp_desc.sim
         param_info = self.sim.get_param_info()
-        sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+
+
+        if hasattr(sim_desc, 'dt_obs'):
+            
+            sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars, sim_desc.dt_obs)
+
+        else:
+
+            sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+
         ssm = sim_setup['ssm']
         props = sim_setup['props']
         inputs = sim_setup['inputs']
+        param_names = sim_setup['exp_info']['param_names']
+        is_constrained_tree = sim_setup['exp_info']['constrainers']
         key, subkey = jr.split(key)
         xparam = sample_prior(subkey, props)[0]
 
         if sample_gt:
+
             key, subkey = jr.split(key)
             true_ps = sample_prior(key, props)[0]
             true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
-            _, obs_ys = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
-        else:
-            true_ps, obs_ys = self.sim.get_ground_truth()
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
 
-        n_inputs = sim_desc.emission_dim * sim_desc.num_timesteps
-        n_cond = to_train_array(xparam, props).shape[0]
-        key_model, key_learner = jr.split(key)
-        model = self._create_model(n_inputs, n_cond, key_model)
-        learner = nde.SequentialNeuralLikelihood(props, ssm, lag=-1)
+        else:
+
+            xparam = sample_prior(key, props)[0]
+            true_cps = self.sim.get_ground_truth()
+            unravel_fn = get_unravel_fn(xparam, props)
+            unravel = unravel_fn(true_cps)
+            tree = tree_from_params(xparam)
+            new_tree = join_trees(unravel, tree, props)
+            is_constrained_tree = xparam._is_constrained_tree()
+            true_ps = params_from_tree(new_tree, param_names, is_constrained_tree)
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        ax.plot(states, label='States')
+        ax.plot(observations, label='Observations')
+        ax.legend()
+        ax.set_title('Observations')
+        plt.savefig(os.path.join(exp_dir, 'observations.png'))
+        plt.close(fig)
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
+            n_inputs = sim_desc.emission_dim * sim_desc.num_timesteps
+            n_cond = to_train_array(xparam, props).shape[0]
+            key_model, key_learner = jr.split(key)
+            model = self._create_model(n_inputs, n_cond, key_model)
+            learner = nde.SequentialNeuralLikelihood(props, ssm, lag=-1)
+
             model, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
                 key=key_learner,
-                observations=obs_ys,
+                observations=observations,
                 model=model,
                 num_rounds=inf_desc.n_rounds,
                 num_timesteps=sim_desc.num_timesteps,
@@ -243,13 +308,11 @@ class ExperimentRunner:
                 train_on=inf_desc.train_on,
                 mcmc_steps=inf_desc.mcmc_steps,
                 logger=logger
+
             )
 
-            error = kde_error(posterior_cond_sample, true_cps)
-            num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
-
-            util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
-            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error'))
+            util.io.save(nnx.split(model), os.path.join(exp_dir, 'model'))
+            util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
             util.io.save(learner.all_emissions, os.path.join(exp_dir, 'all_emissions'))
             util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))
@@ -276,11 +339,20 @@ class ExperimentRunner:
         inf_desc = self.exp_desc.inf
         sim_desc = self.exp_desc.sim
         param_info = self.sim.get_param_info()
-        sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+
+        if hasattr(sim_desc, 'dt_obs'):
+            
+            sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars, sim_desc.dt_obs)
+
+        else:
+
+            sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)        
+
         ssm = sim_setup['ssm']
         props = sim_setup['props']
         inputs = sim_setup['inputs']
-
+        param_names = sim_setup['exp_info']['param_names']
+        is_constrained_tree = sim_setup['exp_info']['constrainers']
         key, subkey = jr.split(key)
         xparam = sample_prior(subkey, props)[0]
 
@@ -298,11 +370,27 @@ class ExperimentRunner:
             true_ps = sample_prior(key, props)[0]
             true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
-            true_ps, obs_ys = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
 
         else:
 
-            true_ps, obs_ys = self.sim.get_ground_truth()
+            xparam = sample_prior(key, props)[0]
+            true_cps = self.sim.get_ground_truth()
+            unravel_fn = get_unravel_fn(xparam, props)
+            unravel = unravel_fn(true_cps)
+            tree = tree_from_params(xparam)
+            new_tree = join_trees(unravel, tree, props)
+            is_constrained_tree = xparam._is_constrained_tree()
+            true_ps = params_from_tree(new_tree, param_names, is_constrained_tree)
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        ax.plot(states, label='States')
+        ax.plot(observations, label='Observations')
+        ax.legend()
+        ax.set_title('Observations')
+        plt.savefig(os.path.join(exp_dir, 'observations.png'))
+        plt.close(fig)
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
@@ -315,7 +403,7 @@ class ExperimentRunner:
 
             _, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
                 key=key_learner,
-                observations=obs_ys,
+                observations=observations,
                 model=model,
                 num_rounds=inf_desc.n_rounds,
                 num_timesteps=sim_desc.num_timesteps,
@@ -327,12 +415,9 @@ class ExperimentRunner:
                 num_tiles = num_tiles,
                 subsample = subsample
             )
-            
-            error = kde_error(posterior_cond_sample, true_cps)
-            num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
 
-            util.io.save(([true_ps, true_cps], obs_ys), os.path.join(exp_dir, 'gt'))
-            util.io.save((error, num_simulations), os.path.join(exp_dir, 'error'))
+            util.io.save(nnx.split(model), os.path.join(exp_dir, 'model'))
+            util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
             util.io.save(learner.all_emissions, os.path.join(exp_dir, 'all_emissions'))
             util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))

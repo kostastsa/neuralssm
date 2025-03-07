@@ -7,8 +7,8 @@ from jax.tree_util import tree_map
 from util.train import reshape_emissions
 from util.sample import map_sims
 from util.param import  ParamSSM, to_train_array, log_prior, sample_prior
-from density_models import MAF
-from ssm import SSM
+from maf.density_models import MAF
+from simulators.ssm import SSM
 from datasets.data_loaders import Data, get_data_loaders 
 from flax import nnx
 import optax
@@ -61,7 +61,7 @@ def sample_and_train(key,
                      ssmodel: SSM,
                      lag: int,
                      num_timesteps: int, 
-                     props_prior: ParamSSM,
+                     props: ParamSSM,
                      params_sample: list,
                      prev_dataset: onp.array = onp.array([]),
                      batch_size: int = 128,
@@ -80,8 +80,8 @@ def sample_and_train(key,
     num_samples = len(params_sample)
     keys = jr.split(key, num_samples)
 
-    all_cond_params = jnp.array(tree_map(lambda params: to_train_array(params, props_prior), params_sample))
-    all_emissions = vmap(map_sims, in_axes=(0,0,None,None,None))(keys, all_cond_params, props_prior, ssmodel, num_timesteps)
+    all_cond_params = jnp.array(tree_map(lambda params: to_train_array(params, props), params_sample))
+    all_emissions = vmap(map_sims, in_axes=(0,0,None,None,None))(keys, all_cond_params, props, ssmodel, num_timesteps)
     if lag > 0:
         all_cond_params_tiled = vmap(jnp.tile, in_axes=(0, None))(all_cond_params, (num_timesteps, 1))
         all_lagged_emissions = vmap(reshape_emissions, in_axes=(0, None))(all_emissions, lag)
@@ -145,7 +145,7 @@ def sequential_posterior_sampling(
                     num_samples: int,
                     num_mcmc_steps: int,
                     emissions,
-                    props_prior,
+                    props,
                     example_param,
                     param_names,
                     is_constrained_tree,
@@ -158,7 +158,7 @@ def sequential_posterior_sampling(
     '''
     # Sample initial parameters
     key, subkey = jr.split(key)
-    params_sample = sample_prior(subkey, props_prior, num_samples) # Here, output params are in mixed constrained/unconstrained form
+    params_sample = sample_prior(subkey, props, num_samples) # Here, output params are in mixed constrained/unconstrained form
                                                                 # The trainable params (given in prior by dist) are unconstrained
                                                                 # whereas the not-trainable params (given in prior by arrays) are constrained
                                                                 # In the trainer, the cond_params are appended to the dataset and then the params are converted
@@ -178,7 +178,7 @@ def sequential_posterior_sampling(
             prev_dataset = dataset, 
             lag = lag,
             num_timesteps = num_timesteps, 
-            props_prior = props_prior,
+            props = props,
             num_epochs = 20,
             learning_rate = 1 * 1e-4,
             verbose=False
@@ -188,11 +188,11 @@ def sequential_posterior_sampling(
         print("* Sampling new parameters")
 
         ## Pin logdensity function to the current model and emissions   
-        pin_logdensity_fn = partial(logdensity_fn, model=model, emissions=emissions, prior=props_prior, lag=lag)
+        pin_logdensity_fn = partial(logdensity_fn, model=model, emissions=emissions, prior=props, lag=lag)
 
         ## Initialize MCMC chain and kernel
         key, subkey = jr.split(key)
-        initial_cond_params = to_train_array(sample_ssm_params(subkey, props_prior, 1)[0], props_prior)
+        initial_cond_params = to_train_array(sample_ssm_params(subkey, props, 1)[0], props)
         taf_random_walk = blackjax.additive_step_random_walk(pin_logdensity_fn, blackjax.mcmc.random_walk.normal(rw_sigma))
         taf_initial_state = taf_random_walk.init(initial_cond_params)
         taf_kernel = jax.jit(taf_random_walk.step)
@@ -204,10 +204,10 @@ def sequential_posterior_sampling(
         params_sample = []
         print("* Adding new params")
         for cond_param in positions:
-            unravel_fn = get_unravel_fn(example_param, props_prior)
+            unravel_fn = get_unravel_fn(example_param, props)
             unravel = unravel_fn(cond_param)
             tree = tree_from_params(example_param)
-            new_tree = join_trees(unravel, tree, props_prior)
+            new_tree = join_trees(unravel, tree, props)
             param = params_from_tree(new_tree, param_names, is_constrained_tree)
             params_sample.append(param)
 

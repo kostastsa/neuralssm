@@ -1,0 +1,17 @@
+experiment
+{
+    sim: svssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: d4
+	},
+	inf: smc_abc
+	{
+		n_samples: 200,
+		eps_init: 10.0,
+		eps_last: 1.8,
+		eps_decay: 0.9
+	}
+}

@@ -208,6 +208,7 @@ def plot_hist_marginals(data, weights=None, lims=None, gt=None, upper=False, ras
                 ax = fig.add_subplot(n_dim, n_dim, i * n_dim + j + 1)
 
                 if i == j:
+                    
                     ax.hist(data[:, i], weights=weights, bins=n_bins, density=True, rasterized=rasterized)
                     ax.set_ylim([0.0, ax.get_ylim()[1]])
                     ax.tick_params(axis='y', which='both', left=False, right=False, labelleft=False)
@@ -216,6 +217,7 @@ def plot_hist_marginals(data, weights=None, lims=None, gt=None, upper=False, ras
                     if gt is not None: ax.vlines(gt[i], 0, ax.get_ylim()[1], color='r')
 
                 else:
+
                     ax.scatter(data[:, j], data[:, i], c=col, s=3, marker='o', vmin=vmin, vmax=vmax, cmap='binary', edgecolors='none', rasterized=rasterized)
                     if i < n_dim - 1: ax.tick_params(axis='x', which='both', labelbottom=False)
                     if j > 0: ax.tick_params(axis='y', which='both', labelleft=False)

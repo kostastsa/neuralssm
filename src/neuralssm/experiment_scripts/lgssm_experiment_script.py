@@ -15,7 +15,7 @@ from matplotlib import pyplot as plt # type: ignore
 from parameters import params_from_tree, sample_ssm_params, initialize, to_train_array, log_prior, get_unravel_fn, join_trees, tree_from_params
 import tensorflow_probability.substrates.jax.distributions as tfd # type: ignore
 import tensorflow_probability.substrates.jax.bijectors as tfb # type: ignore
-from simulation_inference import sequential_posterior_sampling, inference_loop
+from neuralssm.inference.simulation_inference import sequential_posterior_sampling, inference_loop
 from neuralssm.ssm.ssm import LGSSM
 from filters import bpf
 

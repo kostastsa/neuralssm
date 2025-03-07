@@ -51,9 +51,12 @@ def to_train_array(params, props):
             props_subfield = getattr(props_field, subfield_name)
             if props_subfield.props.trainable:
                 if subfield.is_constrained: 
-                    # make sure that the parameter to train is unconstrained. 
-                    # this will produce error downstream if not done
-                    sublist_trainable_params.append(jnp.array([]))
+                    constrainer = props_subfield.props.constrainer
+                    if constrainer is not None:
+                        val = constrainer().inverse(subfield.value)
+                    else:
+                        val = subfield.value
+                    sublist_trainable_params.append(val)
                 else:
                     sublist_trainable_params.append(subfield.value)
             else:
@@ -182,15 +185,28 @@ def log_prior(cond_params, props):
     log_prior = 0
     idx = 0
     for field_name in props.__dict__:
+        
         field = getattr(props, field_name)
+        
         for subfield_name in field.__dict__:
+            
             subfield = getattr(field, subfield_name)
+            
             if isinstance(subfield.prior, tfd.Distribution):
-                shape = tuple(subfield.prior.event_shape)
+
+                try:
+                    
+                    shape = tuple(subfield.prior.event_shape)
+
+                except:
+                    
+                    shape = subfield.prior.shape
+
                 flat_shape = reduce(lambda x, y: x*y, shape)
                 value = cond_params[idx:idx+flat_shape]
                 log_prior += subfield.prior.log_prob(value)
                 idx += flat_shape
+    
     return log_prior
 
 

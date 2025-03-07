@@ -72,6 +72,8 @@ def sq_maximum_mean_discrepancy(xs, ys, wxs=None, wys=None, scale=None, return_s
     :param wys: weights for second sample, optional
     :param scale: kernel scale. If None, calculate it from data
     :return: squared mmd, scale if not given
+
+    Based on Eq. (3) from Gretton et al. (2012) "A Kernel Two-Sample Test"
     """
 
     xs = np.asarray(xs)

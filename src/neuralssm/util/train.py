@@ -5,9 +5,10 @@ from jax import vmap, lax, jit
 from jax.tree_util import tree_map
 from datasets.data_loaders import Data, get_data_loaders 
 from flax import nnx
-from util.sample import map_sims
+from util.sample import map_sims, sim_emissions
 from util.param import to_train_array, log_prior
 from util.misc import kmeans
+from functools import partial
 
 def reshape_emissions(emissions, lag):
     '''
@@ -28,13 +29,19 @@ def logdensity_fn(cond_params, model, emissions, props, lag):
     '''
     Computes the log density of the TAF (lag>0) and SNL (lag=0) models.
     '''
+
     if lag>=0:
+
         lagged_emissions = reshape_emissions(emissions, lag)
         tile_cond_params = jnp.tile(cond_params, (lagged_emissions.shape[0], 1))
         lp = -model.loss_fn(jnp.concatenate([tile_cond_params, lagged_emissions], axis=1))
+
     else:
+
         lp = -model.loss_fn(jnp.concatenate([cond_params[None], emissions.flatten()[None]], axis=1))
+
     lp += log_prior(cond_params, props)
+
     return lp
 
 @nnx.jit  
@@ -48,15 +55,27 @@ def train_step(model, optimizer, data):
     return loss
 
 
-def get_sds(key, learner, num_samples, params_sample, num_timesteps):
+def get_sds(key, logger, learner, num_samples, params_sample, num_timesteps):
     '''
     Returns the training dataset. 
     '''
     assert num_samples == len(params_sample), 'Number of samples must match the number of parameters.'
-
+    
+    if logger is not None:
+        
+        logger.write('------------getting emissions\n')
+    
     keys = jr.split(key, num_samples)
+
     cond_params = jnp.array(tree_map(lambda params: to_train_array(params, learner.props), params_sample))
-    emissions = vmap(map_sims, in_axes=(0,0,None,None,None))(keys, cond_params, learner.props, learner.ssm, num_timesteps)
+
+    for p in params_sample:
+        
+        p.from_unconstrained(learner.props)
+
+    fn = partial(sim_emissions, ssm=learner.ssm, num_timesteps=num_timesteps)
+    emissions = jnp.array(list(map(fn, keys, params_sample)))
+
     return cond_params, emissions
 
 

@@ -1,6 +1,6 @@
 import jax.random as jr
 import jax.numpy as jnp
-from jax import jit, lax
+from jax import jit, lax, debug
 import blackjax
 from util.param import get_unravel_fn, tree_from_params, join_trees, params_from_tree, sample_prior, to_train_array
 
@@ -16,7 +16,18 @@ def map_sims(key, cond_param, props, ssmodel, num_timesteps):
     new_tree = join_trees(unravel, tree, props)
     param = params_from_tree(new_tree, xp._get_names(), xp._is_constrained_tree())
     param.from_unconstrained(props)
+
     _, emissions = ssmodel.simulate(key, param, num_timesteps)
+    return emissions
+
+
+def sim_emissions(key, param, ssm, num_timesteps):
+    ''' Takes parameters in conditional form and
+    returns emissions from ssmodel. ''
+    '''
+
+    _, emissions = ssm.simulate(key, param, num_timesteps)
+
     return emissions
 
 
@@ -34,6 +45,7 @@ def mcmc_inference_loop(rng_key, kernel, initial_state, num_samples):
 
     return states
 
+from blackjax.mcmc.elliptical_slice import as_top_level_api
 
 def sample_logpdf(key, learner, logdensity_fn, num_samples, num_mcmc_steps, rw_sigma):
 
@@ -42,20 +54,27 @@ def sample_logpdf(key, learner, logdensity_fn, num_samples, num_mcmc_steps, rw_s
     ## Initialize MCMC chain and kernel
     key, subkey = jr.split(key)
     initial_cond_params = to_train_array(sample_prior(subkey, learner.props, 1)[0], learner.props)
-    taf_random_walk = blackjax.additive_step_random_walk(logdensity_fn, blackjax.mcmc.random_walk.normal(rw_sigma))
-    taf_initial_state = taf_random_walk.init(initial_cond_params)
-    taf_kernel = jit(taf_random_walk.step)
+    random_walk = blackjax.additive_step_random_walk(logdensity_fn, blackjax.mcmc.random_walk.normal(rw_sigma))
+    hmc = blackjax.hmc(logdensity_fn, step_size=1e-3, inverse_mass_matrix=jnp.ones(initial_cond_params.shape), num_integration_steps=10)
+    initial_state = hmc.init(initial_cond_params)
+    kernel = jit(hmc.step)
+    # ellip_slice = as_top_level_api(logdensity_fn, mean=mean, cov=cov)
+
+    initial_state = random_walk.init(initial_cond_params)
+    kernel = jit(random_walk.step)
 
     ## Run MCMC inference loop
     key, subkey = jr.split(key)
-    taf_mcmc_states = mcmc_inference_loop(subkey, taf_kernel, taf_initial_state, num_mcmc_steps)
-    ps = taf_mcmc_states.position[-num_samples:]
+    mcmc_states = mcmc_inference_loop(subkey, kernel, initial_state, num_mcmc_steps)
+    ps = mcmc_states.position[-num_samples:]
 
     # Setup params for next round
     params_sample = []
     param_names = learner.xparam._get_names()
     is_constrained_tree = learner.xparam._is_constrained_tree()
+
     for cond_param in ps:
+
         unravel_fn = get_unravel_fn(learner.xparam, learner.props)
         unravel = unravel_fn(cond_param)
         tree = tree_from_params(learner.xparam)
@@ -64,6 +83,11 @@ def sample_logpdf(key, learner, logdensity_fn, num_samples, num_mcmc_steps, rw_s
         params_sample.append(param)
 
     return params_sample, ps
+
+
+def slice_sampler():
+    sampler = mcmc.SliceSampler(self.prior.gen(), log_posterior, thin=thin)
+
 
 
 def resample(weights, particles, key):                                                                  
@@ -84,3 +108,36 @@ def resample2(weights, particles, key):
     weights = jnp.ones(shape=(num_particles,)) / num_particles
     next_key = keys[1]
     return weights, resampled_particles, next_key, resampled_idx
+
+
+def generate_emissions(key, emission_dim, model, cond_param, num_samples, lag, num_timesteps):
+
+    all_emissions = []
+    n_params = cond_param.shape[0]
+
+    if lag >=0:
+
+        for _ in range(num_samples):
+
+            emissions = []
+            prev_lagged_emissions = jnp.zeros((lag, emission_dim))
+
+            for t in range(num_timesteps):
+
+                condition_on = jnp.concatenate([cond_param, prev_lagged_emissions.flatten()])[None]
+                key, subkey = jr.split(key)
+                gen = model.generate(subkey, 1, condition_on)[0]
+                new_emission = gen[-emission_dim:]
+                prev_lagged_emissions = jnp.concatenate([prev_lagged_emissions[1:], new_emission[None]])
+                emissions.append(new_emission)
+
+            all_emissions.append(jnp.array(emissions))
+
+        all_emissions=jnp.array(all_emissions)
+
+    else:
+
+        key, subkey = jr.split(key)
+        all_emissions = model.generate(subkey, num_samples, cond_param[None])[:, n_params:]
+
+    return all_emissions
