@@ -49,13 +49,10 @@ class SMC:
 
 
         def _step(carry):
-            tin = time.time()
-            particles, weights, cov, key, log_ess, count_sims, acc_dist = carry
+            particles, weights, cov, key, log_ess, count_sims, eps = carry
             chol = jnp.linalg.cholesky(cov)
             log_ess_min = jnp.log(ess_min)
             log_n_particles = jnp.log(num_particles)
-
-            eps = acc_dist
 
             debug.print('eps---------- {eps}',eps=eps)
 
@@ -85,6 +82,7 @@ class SMC:
                 # Compute distance
                 dist = jnp.linalg.norm(observations - sim_emissions) / jnp.sqrt(num_timesteps * emission_dim)
                 count += 1
+
                 return (dist, new_particle, count, key)
             
             key, subkey = jr.split(key)
@@ -109,13 +107,10 @@ class SMC:
             cov = 2.0 *jnp.cov(new_particles.T, aweights=new_weights).reshape((prt_dim, prt_dim))
             count_sims += jnp.sum(counts)
 
-            acc_dist = 1.0 * jnp.mean(acc_dists)
-            carry = (new_particles, new_weights, cov, key, log_ess, count_sims, acc_dist)
-            tout = time.time()
-            self.time_all_rounds.append(tout-tin)
-            logger.write('--------- time: {:.2f}\n'.format(tout-tin))
-
             debug.print('count_sims------- {x}',x=count_sims)
+
+            eps =  1.0 * jnp.mean(acc_dists)         
+            carry = (new_particles, new_weights, cov, key, log_ess, count_sims, eps)
 
             return carry
 
@@ -125,7 +120,7 @@ class SMC:
         prt_dim = init_particles.shape[1]
         init_weights = jnp.ones(num_particles) / num_particles
         init_cov = jnp.cov(init_particles.T, aweights=init_weights).reshape((prt_dim, prt_dim))
-        carry = (init_particles, init_weights, init_cov, key, 0.0, 0, 10.0)
+        carry = (init_particles, init_weights, init_cov, key, 0.0, 0, eps_init)
         particles, weights, cov, key, log_ess, count_sims, acc_dist  = lax.while_loop(cond_fun, _step, carry)
         is_nan = jnp.isnan(particles).any()
 

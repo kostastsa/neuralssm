@@ -1,4 +1,4 @@
-from jax import numpy as jnp, random as jr, vmap, debug
+from jax import numpy as jnp, random as jr, jax
 import numpy as onp
 from maf.density_models import MAF
 from functools import partial
@@ -9,6 +9,7 @@ from util.misc import compute_distances
 from flax import nnx
 import optax
 import time
+import gc
 
 
 class SequentialNeuralLikelihood:
@@ -78,7 +79,8 @@ class SequentialNeuralLikelihood:
         # Sample initial parameters
         key, subkey = jr.split(key)
         params_sample = sample_prior(subkey, self.props, num_samples)
-        self.xparam = params_sample[0]    
+        key, subkey = jr.split(key)
+        self.xparam = sample_prior(subkey, self.props, num_samples)[0]
         self.all_params = []
         self.time_all_rounds = []
 
@@ -88,7 +90,6 @@ class SequentialNeuralLikelihood:
             logger.write('----------------------------------\n')
             logger.write('Learning MAF likelihood, round {0}\n'.format(r + 1))
             logger.write('----------------------------------\n')
-
             logger.write('---------setting up datasets\n')
 
             # Sample emissions and create dataset
@@ -119,6 +120,7 @@ class SequentialNeuralLikelihood:
                     sds = (all_cond_params, all_emissions)
 
                 elif train_on == 'best':
+                    
                     weights = jnp.exp(-all_dists)
                     weights /= jnp.sum(weights)
                     key, subkey = jr.split(key)
@@ -163,6 +165,9 @@ class SequentialNeuralLikelihood:
             self.time_all_rounds.append(tout-tin)
 
             logger.write('---------time: {:.2f}\n'.format(tout-tin))
+
+            gc.collect()
+            jax.clear_backends()
 
         self.all_dists = all_dists
         self.all_emissions = all_emissions

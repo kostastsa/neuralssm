@@ -55,10 +55,9 @@ def sample_logpdf(key, learner, logdensity_fn, num_samples, num_mcmc_steps, rw_s
     key, subkey = jr.split(key)
     initial_cond_params = to_train_array(sample_prior(subkey, learner.props, 1)[0], learner.props)
     random_walk = blackjax.additive_step_random_walk(logdensity_fn, blackjax.mcmc.random_walk.normal(rw_sigma))
-    hmc = blackjax.hmc(logdensity_fn, step_size=1e-3, inverse_mass_matrix=jnp.ones(initial_cond_params.shape), num_integration_steps=10)
-    initial_state = hmc.init(initial_cond_params)
-    kernel = jit(hmc.step)
-    # ellip_slice = as_top_level_api(logdensity_fn, mean=mean, cov=cov)
+    # hmc = blackjax.hmc(logdensity_fn, step_size=1e-3, inverse_mass_matrix=jnp.ones(initial_cond_params.shape), num_integration_steps=10)
+    # initial_state = hmc.init(initial_cond_params)
+    # kernel = jit(hmc.step)
 
     initial_state = random_walk.init(initial_cond_params)
     kernel = jit(random_walk.step)
@@ -85,28 +84,27 @@ def sample_logpdf(key, learner, logdensity_fn, num_samples, num_mcmc_steps, rw_s
     return params_sample, ps
 
 
-def slice_sampler():
-    sampler = mcmc.SliceSampler(self.prior.gen(), log_posterior, thin=thin)
-
-
-
 def resample(weights, particles, key):                                                                  
+
     keys = jr.split(key, 2)
     num_particles = weights.shape[0]
     resampled_idx = jr.choice(keys[0], jnp.arange(weights.shape[0]), shape=(num_particles,), p=weights)
     resampled_particles = jnp.take(particles, resampled_idx, axis=0)
     weights = jnp.ones(shape=(num_particles,)) / num_particles
     next_key = keys[1]
+
     return weights, resampled_particles, next_key
 
 
 def resample2(weights, particles, key):                                                                  
+
     keys = jr.split(key, 2)
     num_particles = weights.shape[0]
     resampled_idx = jr.choice(keys[0], jnp.arange(weights.shape[0]), shape=(num_particles,), p=weights)
     resampled_particles = jnp.take(particles, resampled_idx, axis=0)
     weights = jnp.ones(shape=(num_particles,)) / num_particles
     next_key = keys[1]
+
     return weights, resampled_particles, next_key, resampled_idx
 
 
