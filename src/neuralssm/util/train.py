@@ -80,22 +80,27 @@ def get_sds(key, logger, learner, num_samples, params_sample, num_timesteps):
 
 
 def lag_ds(straight_ds, lag, num_tiles):
+        
         assert lag >= 0, 'Lag must be non-negative.'
         emissions = straight_ds[1]
         cond_params = straight_ds[0]
         lagged_emissions = vmap(reshape_emissions, in_axes=(0, None))(emissions, lag)
         cond_params_tiled = vmap(jnp.tile, in_axes=(0, None))(cond_params, (lagged_emissions.shape[1], 1))
         dataset = jnp.concatenate([cond_params_tiled, lagged_emissions], axis=2)
+
         return dataset
 
 def subsample_fn(key, dataset, num_tiles):
+        
         keys = jr.split(key, num_tiles+1)
         dataset = jr.choice(keys[-1], dataset.swapaxes(0,1), shape=(num_tiles,), replace=False)
         dataset = dataset.swapaxes(0,1)
+
         return dataset
 
 
 def _get_data_loaders(dataset, batch_size):
+
         # Setup data loaders
         ntrain, nval = int(0.95 * dataset.shape[0]), int(0.05 * dataset.shape[0])
         train_data, val_data, test_data = dataset[:ntrain], dataset[ntrain:ntrain+nval], dataset[ntrain+nval:]

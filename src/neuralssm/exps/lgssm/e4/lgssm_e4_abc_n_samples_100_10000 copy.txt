@@ -1,3 +1,4 @@
+
 experiment
 {
     sim: lgssm
@@ -9,7 +10,43 @@ experiment
 	},
 	inf: smc_abc
 	{
-		n_samples: 200,
+		n_samples: 10,
+		eps_init: 10.0,
+		eps_last: 1.8,
+		eps_decay: 0.9
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: e4
+	},
+	inf: smc_abc
+	{
+		n_samples: 50,
+		eps_init: 10.0,
+		eps_last: 1.8,
+		eps_decay: 0.9
+	}
+}
+
+experiment
+{
+    sim: lgssm
+    {
+		state_dim: 1,
+		emission_dim: 1,
+		num_timesteps: 100,
+        target_vars: e4
+	},
+	inf: smc_abc
+	{
+		n_samples: 100,
 		eps_init: 10.0,
 		eps_last: 1.8,
 		eps_decay: 0.9
@@ -28,24 +65,6 @@ experiment
 	inf: smc_abc
 	{
 		n_samples: 200,
-		eps_init: 10.0,
-		eps_last: 1.8,
-		eps_decay: 0.9
-	}
-}
-
-experiment
-{
-    sim: lgssm
-    {
-		state_dim: 1,
-		emission_dim: 1,
-		num_timesteps: 100,
-        target_vars: e4
-	},
-	inf: smc_abc
-	{
-		n_samples: 500,
 		eps_init: 10.0,
 		eps_last: 1.8,
 		eps_decay: 0.9
@@ -70,6 +89,7 @@ experiment
 	}
 }
 
+
 experiment
 {
     sim: lgssm
@@ -86,4 +106,3 @@ experiment
 		eps_last: 1.8,
 		eps_decay: 0.9
 	}
-}

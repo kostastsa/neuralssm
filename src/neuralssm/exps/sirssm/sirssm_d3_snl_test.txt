@@ -2,7 +2,7 @@ experiment
 {
 	sim: sirssm
 	{
-		state_dim: 1,
+		state_dim: 3,
 		emission_dim: 1,
 		num_timesteps: 100,
 		dt_obs: 0.01,

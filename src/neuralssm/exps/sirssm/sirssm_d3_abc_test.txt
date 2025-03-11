@@ -6,7 +6,7 @@ experiment
 		emission_dim: 1,
 		num_timesteps: 100,
 		dt_obs: 0.1,
-        target_vars: d4
+	        target_vars: d3
 	},
 	inf: smc_abc
 	{

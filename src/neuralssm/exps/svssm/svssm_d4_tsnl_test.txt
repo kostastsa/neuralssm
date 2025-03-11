@@ -21,7 +21,7 @@ experiment
 			batch_norm: True,
 			dropout: True,
 		},
-		n_samples: 100,
+		n_samples: 10,
 		n_rounds: 5,
 		lag: 20,
 		subsample: 1.0,

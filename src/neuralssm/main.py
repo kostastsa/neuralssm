@@ -143,6 +143,14 @@ def run_trials(args):
     if args.end < args.start:
         raise ValueError('end trial can''t be less than start trial')
     
+    import os
+    import subprocess
+
+    for file in args.files:
+
+        file_path = os.getcwd() + '/' + file
+        subprocess.run(["open", file_path])
+    
     exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
 
     seed = int(time.time() * 1000) if args.seed=='r' else args.seed  
@@ -150,14 +158,22 @@ def run_trials(args):
     
     for exp_desc in exp_descs:
 
-        runner = ExperimentRunner(exp_desc)
-
         for trial in range(args.start, args.end + 1):
 
-            key, subkey = jr.split(key)
+            exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
+
+            if os.path.exists(os.path.join(exp_dir, str(trial))):
+
+                print('EXPERIMENT ALREADY EXISTS')
+                jax.clear_backends()
+                gc.collect()
+                continue  # Skip creating the runner
+
+            runner = ExperimentRunner(exp_desc)
 
             try:
-                
+
+                key, subkey = jr.split(key)
                 out = runner.run(trial=trial, sample_gt=True, key=subkey, seed=seed)
 
             except misc.AlreadyExistingExperiment:
