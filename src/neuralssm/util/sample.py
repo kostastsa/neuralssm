@@ -3,6 +3,8 @@ import jax.numpy as jnp
 from jax import jit, lax, debug
 import blackjax
 from util.param import get_unravel_fn, tree_from_params, join_trees, params_from_tree, sample_prior, to_train_array
+from blackjax.mcmc.elliptical_slice import as_top_level_api
+from functools import partial
 
 
 def map_sims(key, cond_param, props, ssmodel, num_timesteps):
@@ -30,22 +32,23 @@ def sim_emissions(key, param, ssm, num_timesteps):
 
     return emissions
 
+@partial(jit, static_argnums=(1,))
+def one_step(state, kernel, rng_key):
+    state, _ = kernel(rng_key, state)
+    return state, state
+
 
 def mcmc_inference_loop(rng_key, kernel, initial_state, num_samples):
     '''
     Runs the MCMC kernel for num_samples steps and returns the states.
     '''
-    @jit
-    def one_step(state, rng_key):
-        state, _ = kernel(rng_key, state)
-        return state, state
 
     keys = jr.split(rng_key, num_samples)
-    _, states = lax.scan(one_step, initial_state, keys)
+    _one_step = lambda state, key: one_step(state, kernel, key)
+    _, states = lax.scan(_one_step, initial_state, keys)
 
     return states
 
-from blackjax.mcmc.elliptical_slice import as_top_level_api
 
 def sample_logpdf(key, learner, logdensity_fn, num_samples, num_mcmc_steps, rw_sigma):
 
