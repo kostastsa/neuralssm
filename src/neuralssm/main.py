@@ -122,7 +122,7 @@ def run_experiment(args):
 
         try:
         
-            ExperimentRunner(exp_desc).run(trial=0, sample_gt=True, key=key)
+            ExperimentRunner(exp_desc).run(trial=0, sample_gt=True, plot_sims=False, key=key)
 
         except misc.AlreadyExistingExperiment:
             print('EXPERIMENT ALREADY EXISTS')
@@ -162,6 +162,8 @@ def run_trials(args):
 
             exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
 
+            print(exp_desc.pprint())
+
             if os.path.exists(os.path.join(exp_dir, str(trial))):
 
                 print('EXPERIMENT ALREADY EXISTS')
@@ -174,7 +176,7 @@ def run_trials(args):
             try:
 
                 key, subkey = jr.split(key)
-                out = runner.run(trial=trial, sample_gt=True, key=subkey, seed=seed)
+                out = runner.run(trial=trial, sample_gt=True, plot_sims=False, key=subkey, seed=seed)
 
             except misc.AlreadyExistingExperiment:
 
@@ -507,7 +509,8 @@ def eval_and_plot_errors(args, show=True):
         sim_desc = exp_desc.sim
 
         for trial in range(args.start, args.end + 1):
-
+            
+            print(f'Working on trial {trial}')
             print(exp_desc.pprint())
 
             try:
@@ -521,7 +524,6 @@ def eval_and_plot_errors(args, show=True):
 
                     if isinstance(inf_desc, ed.ABC_Descriptor):
                         results = util.io.load(os.path.join(exp_dir, 'results'))
-                        # samples, _, _, _, counts, _, _ = results
                         samples, weights, counts = results
                         error = kde_error(samples, true_cps)
                         rmse = rms_error(samples, true_cps)

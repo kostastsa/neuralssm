@@ -38,7 +38,7 @@ class ExperimentRunner:
         self.exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
         self.sim = misc.get_simulator(exp_desc.sim)
 
-    def run(self, trial=0, sample_gt=False, n_post_samples=1000, key=jr.PRNGKey(0), seed=0):
+    def run(self, trial=0, sample_gt=False, plot_sims=False, n_post_samples=1000, key=jr.PRNGKey(0), seed=0):
         """
         Runs the experiment.
         :param rng: random number generator to use
@@ -57,16 +57,16 @@ class ExperimentRunner:
 
         try:
             if isinstance(self.exp_desc.inf, ed.ABC_Descriptor):
-                self._run_abc(exp_dir, sample_gt, key, seed)
+                self._run_abc(exp_dir, sample_gt, plot_sims, key, seed)
 
             elif isinstance(self.exp_desc.inf, ed.PRT_MCMC_Descriptor):
-                self._run_prt_mcmc(exp_dir, sample_gt, n_post_samples, key, seed)
+                self._run_prt_mcmc(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed)
 
             elif isinstance(self.exp_desc.inf, ed.SNL_Descriptor):
-                self._run_snl(exp_dir, sample_gt, n_post_samples, key, seed)
+                self._run_snl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed)
 
             elif isinstance(self.exp_desc.inf, ed.TSNL_Descriptor):
-                self._run_tsnl(exp_dir, sample_gt, n_post_samples, key, seed)
+                self._run_tsnl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed)
 
             else:
                 raise TypeError('unknown inference descriptor')
@@ -74,11 +74,10 @@ class ExperimentRunner:
         except:
 
             print('EXPERIMENT FAILED')
-            # shutil.rmtree(exp_dir)
 
             raise
 
-    def _run_abc(self, exp_dir, sample_gt, key, seed):
+    def _run_abc(self, exp_dir, sample_gt, plot_sims, key, seed):
         """
         Runs the ABC experiments.
         """
@@ -113,13 +112,15 @@ class ExperimentRunner:
             
             true_ps, observations = self.sim.get_ground_truth()
 
-        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-        ax.plot(states, label='States')
-        ax.plot(observations, label='Observations')
-        ax.legend()
-        ax.set_title('Observations')
-        plt.savefig(os.path.join(exp_dir, 'observations.png'))
-        plt.close(fig)
+        if plot_sims: 
+
+            fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+            ax.plot(states, label='States')
+            ax.plot(observations, label='Observations')
+            ax.legend()
+            ax.set_title('Observations')
+            plt.savefig(os.path.join(exp_dir, 'observations.png'))
+            plt.close(fig)
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
@@ -153,7 +154,7 @@ class ExperimentRunner:
             gc.collect()
 
 
-    def _run_prt_mcmc(self, exp_dir, sample_gt, n_post_samples, key, seed):
+    def _run_prt_mcmc(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed):
         """
         Runs the ABC experiments.
         """
@@ -188,14 +189,16 @@ class ExperimentRunner:
         else:
             
             true_ps, observations = self.sim.get_ground_truth()
+
+        if plot_sims:
     
-        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-        ax.plot(states, label='States')
-        ax.plot(observations, label='Observations')
-        ax.legend()
-        ax.set_title('Observations')
-        plt.savefig(os.path.join(exp_dir, 'observations.png'))
-        plt.close(fig)
+            fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+            ax.plot(states, label='States')
+            ax.plot(observations, label='Observations')
+            ax.legend()
+            ax.set_title('Observations')
+            plt.savefig(os.path.join(exp_dir, 'observations.png'))
+            plt.close(fig)
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
@@ -233,7 +236,7 @@ class ExperimentRunner:
             gc.collect()
 
 
-    def _run_snl(self, exp_dir, sample_gt, n_post_samples, key, seed):
+    def _run_snl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed):
         """
         Runs the likelihood learner with MCMC.
         """
@@ -281,13 +284,15 @@ class ExperimentRunner:
             true_ps = params_from_tree(new_tree, param_names, is_constrained_tree)
             states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
 
-        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-        ax.plot(states, label='States')
-        ax.plot(observations, label='Observations')
-        ax.legend()
-        ax.set_title('Observations')
-        plt.savefig(os.path.join(exp_dir, 'observations.png'))
-        plt.close(fig)
+        if plot_sims:
+
+            fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+            ax.plot(states, label='States')
+            ax.plot(observations, label='Observations')
+            ax.legend()
+            ax.set_title('Observations')
+            plt.savefig(os.path.join(exp_dir, 'observations.png'))
+            plt.close(fig)
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
@@ -329,7 +334,7 @@ class ExperimentRunner:
             jax.clear_backends()
             gc.collect()
 
-    def _run_tsnl(self, exp_dir, sample_gt, n_post_samples, key, seed):
+    def _run_tsnl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed):
         """
         Runs the likelihood learner with MCMC.
         """
@@ -384,13 +389,15 @@ class ExperimentRunner:
             true_ps = params_from_tree(new_tree, param_names, is_constrained_tree)
             states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
 
-        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-        ax.plot(states, label='States')
-        ax.plot(observations, label='Observations')
-        ax.legend()
-        ax.set_title('Observations')
-        plt.savefig(os.path.join(exp_dir, 'observations.png'))
-        plt.close(fig)
+        if plot_sims:
+
+            fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+            ax.plot(states, label='States')
+            ax.plot(observations, label='Observations')
+            ax.legend()
+            ax.set_title('Observations')
+            plt.savefig(os.path.join(exp_dir, 'observations.png'))
+            plt.close(fig)
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 

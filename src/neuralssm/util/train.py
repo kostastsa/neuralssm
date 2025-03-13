@@ -3,12 +3,14 @@ import jax.random as jr
 import numpy as onp
 from jax import vmap, lax, jit
 from jax.tree_util import tree_map
-from datasets.data_loaders import Data, get_data_loaders 
+from datasets.data_loaders import Data
 from flax import nnx
-from util.sample import map_sims, sim_emissions
+from util.sample import sim_emissions
 from util.param import to_train_array, log_prior
 from util.misc import kmeans
 from functools import partial
+import torch # type: ignore
+
 
 def reshape_emissions(emissions, lag):
     '''
@@ -105,7 +107,14 @@ def _get_data_loaders(dataset, batch_size):
         ntrain, nval = int(0.95 * dataset.shape[0]), int(0.05 * dataset.shape[0])
         train_data, val_data, test_data = dataset[:ntrain], dataset[ntrain:ntrain+nval], dataset[ntrain+nval:]
         data = Data(dataset.shape[1], train_data, val_data, test_data)
-        train_loader, val_loader, _  = get_data_loaders(data, batch_size)
+
+        train = torch.from_numpy(data.train)
+        val = torch.from_numpy(data.val)
+        test = torch.from_numpy(data.test)
+
+        train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size,)
+        val_loader = torch.utils.data.DataLoader(val, batch_size=batch_size,)
+        test_loader = torch.utils.data.DataLoader(test, batch_size=batch_size,)
 
         return train_loader, val_loader
 
