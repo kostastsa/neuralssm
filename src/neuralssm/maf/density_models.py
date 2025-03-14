@@ -2,7 +2,7 @@ from flax import nnx
 import jax.numpy as jnp
 import jax.random as jr
 from functools import partial
-import jax
+from jax import jax, jit
 from .masks import create_masks, create_degrees
 from .layers import BatchNormLayer, MaskedLinear, activations
 
@@ -186,6 +186,7 @@ class MAF(nnx.Module):
 
         return u
     
+
     def generate(self, key, num_samples, cond_samples=None):
 
         u = jr.normal(key, (num_samples, self.din))
