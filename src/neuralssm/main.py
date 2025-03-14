@@ -236,8 +236,15 @@ def view_ensemble(args, show=True):
 
     for exp_desc in exp_descs:
         
-        error_array = []
+        kder_array = []
         rmse_array = []
+        mmd_array = []
+
+        get_mmd = False
+
+        if isinstance(exp_desc.inf, ed.SNL_Descriptor) or isinstance(exp_desc.inf, ed.TSNL_Descriptor):
+
+            get_mmd = True
 
         for trial in range(args.start, args.end + 1):
 
@@ -247,11 +254,19 @@ def view_ensemble(args, show=True):
                 exp_dir += '/' + str(trial)
 
                 try:
+
                     print(exp_desc.pprint())
-                    error, num_sims = util.io.load(os.path.join(exp_dir, 'error'))
+
+                    kder, num_sims = util.io.load(os.path.join(exp_dir, 'error'))
+                    kder_array.append(kder)
+
                     rmse = util.io.load(os.path.join(exp_dir, 'rmse'))
-                    error_array.append(error)
                     rmse_array.append(rmse)
+
+                    if get_mmd:
+
+                        mmd = util.io.load(os.path.join(exp_dir, 'mmd'))
+                        mmd_array.append(mmd)
 
                 except FileNotFoundError:
                     print('ERROR FILE NOT FOUND')
@@ -261,14 +276,14 @@ def view_ensemble(args, show=True):
 
         B = 100
         key, subkey = jr.split(key)
-        error_array = jnp.array(error_array)
-        nans_infs = jnp.isnan(error_array) + jnp.isinf(error_array)
+        kder_array = jnp.array(kder_array)
+        nans_infs = jnp.isnan(kder_array) + jnp.isinf(kder_array)
         nfail = jnp.sum(nans_infs)
-        error_array = error_array[~nans_infs]
+        kder_array = kder_array[~nans_infs]
 
-        bootstrap_errors, _ = util.misc.bootstrap(subkey, error_array, B)
-        mean = jnp.mean(bootstrap_errors)
-        std = jnp.std(bootstrap_errors)
+        bootstrap_kder, _ = util.misc.bootstrap(subkey, kder_array, B)
+        mean_kder = jnp.mean(bootstrap_kder)
+        std_kder = jnp.std(bootstrap_kder)
         num_sims = jnp.log(num_sims)
 
         bootstrap_rmse, _ = util.misc.bootstrap(subkey, jnp.array(rmse_array), B)
@@ -276,16 +291,16 @@ def view_ensemble(args, show=True):
         std_rmse = jnp.std(bootstrap_rmse)
             
         if isinstance(exp_desc.inf, ed.ABC_Descriptor):
-            abc.results.append([mean, std, mean_rmse, std_rmse, num_sims, nfail])
+            abc.results.append([mean_kder, std_kder, mean_rmse, std_rmse, num_sims, nfail])
         
         elif isinstance(exp_desc.inf, ed.BPF_MCMC_Descriptor):
-            mcmc.results.append([mean, std, mean_rmse, std_rmse, num_sims, nfail])
+            mcmc.results.append([mean_kder, std_kder, mean_rmse, std_rmse, num_sims, nfail])
 
         elif isinstance(exp_desc.inf, ed.SNL_Descriptor):
-            snl.results.append([mean, std, mean_rmse, std_rmse, num_sims, nfail])
+            snl.results.append([mean_kder, std_kder, mean_rmse, std_rmse, num_sims, nfail])
 
         elif isinstance(exp_desc.inf, ed.TSNL_Descriptor):
-            tsnl.results.append([mean, std, mean_rmse, std_rmse, num_sims, nfail])
+            tsnl.results.append([mean_kder, std_kder, mean_rmse, std_rmse, num_sims, nfail])
 
     abc.make_jnp()
     mcmc.make_jnp()
@@ -855,7 +870,7 @@ def plot_mmd(args, show=True):
 
     seed = int(time.time() * 1000)
     key = jr.PRNGKey(seed)
-    num_samples = 10
+    num_samples = 100
     exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
 
     for exp_desc in exp_descs:
@@ -865,10 +880,12 @@ def plot_mmd(args, show=True):
         inf_desc = exp_desc.inf
         sim_setup = sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
         mmd_trials = []
-        fig1, ax = plt.subplots(args.end, 1, figsize=(5, args.end*5))
+
 
         for trial in range(args.start, args.end + 1):
-
+            
+            tin = time.time()
+            print(f'Working on trial {trial}')
             print(exp_desc.pprint())
 
             try:
@@ -904,20 +921,19 @@ def plot_mmd(args, show=True):
                 mmd_error = mmd(est_sample.squeeze(), true_sample.squeeze())
                 mmd_trials.append(mmd_error)
 
-                if sim_desc.emission_dim == 1:
+                nans_infs = jnp.isnan(est_sample) + jnp.isinf(est_sample)
+                nans_infs = nans_infs.any(axis=-1).flatten()
 
-                    for e in est_sample:
-
-                        ax[trial-1].plot(e, 'o-', markersize=5, label='samples')
-
-                    ax[trial-1].plot(observations, 'o-', markersize=5, label='observations')
-                    ax[trial-1].set_title(f'Trial {trial}')
-                    ax[trial-1].legend()
+                print('sample shape=', est_sample.shape)
+                print(f'simulated obs have nans in {jnp.sum(nans_infs)} out of {nans_infs.shape[0]} samples')
 
             except misc.AlreadyExistingExperiment:
                 print('TRIAL DOES NOT EXIST')
 
             util.io.save(mmd_error, os.path.join(exp_dir, 'mmd'))
+
+            tout = time.time() - tin
+            print(f'Trial {trial} took {tout:.2f} seconds')
 
         mmd_trials = jnp.array(mmd_trials)
         
@@ -926,17 +942,13 @@ def plot_mmd(args, show=True):
         _, boot_sample = util.misc.bootstrap(subkey, mmd_trials, B)
         mean_dist = jnp.mean(boot_sample, axis=0)
 
-        fig2, ax2 = plt.subplots(1, 1, figsize=(5, 5))
-        ax2.plot(mean_dist, 'o-', markersize=5, label='mean')
-        ax2.set_xlabel('trial') 
-        ax2.set_ylabel('MMD')
-        ax2.legend(prop={'size': 5})
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+        ax.plot(mean_dist, 'o-', markersize=5, label='mean')
+        ax.set_xlabel('trial') 
+        ax.set_ylabel('MMD')
+        ax.legend(prop={'size': 5})
 
-        fig2.savefig(os.path.join(f'{exp_root}', 'mmd.png'))
-
-        if sim_desc.emission_dim == 1:
-
-            fig1.savefig(os.path.join(f'{exp_root}', 'samples.png'))
+        fig.savefig(os.path.join(f'{exp_root}', 'mmd.png'))
 
         if show: 
             plt.show()

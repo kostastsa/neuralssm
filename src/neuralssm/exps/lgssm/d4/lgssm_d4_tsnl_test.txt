@@ -20,10 +20,10 @@ experiment
             batch_norm: False,
             dropout: False
         },
-        n_samples: 500,
+        n_samples: 10,
         n_rounds: 5,
         lag: 10,
-        subsample: 0.5,
+        subsample: 1.0,
         train_on: best,
         mcmc_steps: 1000
 	}
