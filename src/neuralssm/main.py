@@ -931,6 +931,7 @@ def plot_mmd(args, show=True):
                 print('TRIAL DOES NOT EXIST')
 
             util.io.save(mmd_error, os.path.join(exp_dir, 'mmd'))
+            util.io.save(est_sample, os.path.join(exp_dir, 'est_sample'))
 
             tout = time.time() - tin
             print(f'Trial {trial} took {tout:.2f} seconds')

@@ -118,21 +118,44 @@ def generate_emissions(key, emission_dim, model, cond_param, num_samples, lag, n
 
     if lag >=0:
 
-        for _ in range(num_samples):
+        count = 0
+
+        while count < num_samples:
 
             emissions = []
             prev_lagged_emissions = jnp.zeros((lag, emission_dim))
+            t=0
 
-            for t in range(num_timesteps):
+            while t < num_timesteps:
 
                 condition_on = jnp.concatenate([cond_param, prev_lagged_emissions.flatten()])[None]
                 key, subkey = jr.split(key)
                 gen = model.generate(subkey, 1, condition_on)[0]
                 new_emission = gen[-emission_dim:]
-                prev_lagged_emissions = jnp.concatenate([prev_lagged_emissions[1:], new_emission[None]])
-                emissions.append(new_emission)
 
-            all_emissions.append(jnp.array(emissions))
+                if jnp.isnan(new_emission).any() | jnp.isinf(new_emission).any():
+
+                    break
+
+                else: 
+
+                    prev_lagged_emissions = jnp.concatenate([prev_lagged_emissions[1:], new_emission[None]])
+                    emissions.append(new_emission)
+                    t += 1
+                    # print(f'emission at timestep {t} generated')
+
+            sim_emission = jnp.array(emissions)
+            is_nanUinf = jnp.isnan(sim_emission).any() | jnp.isinf(sim_emission).any()
+
+            if is_nanUinf:
+                
+                continue
+
+            else: 
+
+                all_emissions.append(sim_emission)
+                count += 1
+                print(f'Sample {count} generated')
 
         all_emissions=jnp.array(all_emissions)
 
