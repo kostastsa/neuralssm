@@ -1,4 +1,3 @@
-
 experiment
 {
     sim: lgssm
@@ -8,6 +7,7 @@ experiment
 		num_timesteps: 100,
         target_vars: d4
 	},
+
     inf: tsnl
 	{
 		model: maf

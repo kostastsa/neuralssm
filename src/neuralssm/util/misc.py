@@ -137,6 +137,10 @@ def bootstrap(key, rmse_array, B):
 
 
 def compute_distances(emissions, observations, num_timesteps, emission_dim):
+
+    # ensure emissions has a leading dimension
+    if emissions.ndim == 2:
+        emissions = emissions[None, ...]
     
     distances = vmap(lambda sim_emissions: jnp.linalg.norm(observations - sim_emissions) / jnp.sqrt(num_timesteps * emission_dim))(emissions)
 
@@ -160,3 +164,62 @@ def clear_nans(errors):
     out = jnp.array([means, stds, nsims]).T
 
     return out, nfail, success_pct
+
+
+def ratio(x, alpha, exp_matrix_gen, sample, sigma):
+
+    exp_values = vmap(exp_matrix_gen, in_axes=(None, 0, None))(x, sample, sigma)
+    ratio = alpha @ exp_values
+
+    return ratio, exp_values
+
+def exp_matrix_gen(x, y, sigma): 
+    return jnp.exp(-(0.5 / sigma**2) * jnp.linalg.norm(x - y)**2)
+
+def find_quantile(prev_sample, new_sample, sigma=1.0):
+    '''Implements the method from the paper Adaptive Approximate Bayesian Computation
+    Tolerance Selection by Simola et al. to find the quantile parameter for the
+    '''
+
+    n_samples = prev_sample.shape[0]
+    
+    exp_matrix = vmap(lambda x: vmap(exp_matrix_gen, in_axes=(None, 0, None))(x, prev_sample, sigma))(new_sample)
+    exp_matrix_0 = vmap(lambda x: vmap(exp_matrix_gen, in_axes=(None, 0, None))(x, prev_sample, sigma))(prev_sample)
+    e0 = jnp.sum(exp_matrix_0, axis=0) / n_samples
+
+    def cond_fn(carry):
+        _, err = carry
+        return err > .1
+
+    def step(carry):
+
+        prev_alpha, err = carry
+        b = 1 / (exp_matrix @ prev_alpha)
+        new_alpha = prev_alpha * (exp_matrix.T @ b) / e0 / n_samples
+        err = jnp.linalg.norm(new_alpha - prev_alpha)
+        carry = new_alpha, err
+    
+        return carry
+
+    alpha_star, _ = lax.while_loop(cond_fn, step, (jnp.ones(n_samples), 2.0))
+
+    def _cond_fn(carry):
+        _, err = carry
+        return err > 0.01
+
+    def _step(carry):
+
+        prev_x, err = carry
+        r, exp_values = ratio(prev_x, alpha_star, exp_matrix_gen, prev_sample, sigma)
+        new_x = jnp.einsum('i,i,ij->j', alpha_star, exp_values, prev_sample) / r
+        err = jnp.linalg.norm(new_x - prev_x)
+        carry = new_x, err
+    
+        return carry
+
+    i_star = jnp.argmax(alpha_star)
+    x_star, _ = lax.while_loop(_cond_fn, _step, (prev_sample[i_star], 2.0))
+    c, _ = ratio(x_star, alpha_star, exp_matrix_gen, prev_sample, sigma)
+    q = 1 / c
+
+    return q

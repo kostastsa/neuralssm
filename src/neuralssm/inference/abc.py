@@ -1,13 +1,15 @@
 import jax.numpy as jnp
 import jax.random as jr
 import sys, os
-from jax import lax, vmap, debug
+from jax import lax, vmap, debug, jax
 from jax.scipy.special import logsumexp as lse 
+from util.misc import find_quantile
 from util.sample import map_sims
 from util.param import sample_prior, to_train_array, log_prior
 import tensorflow_probability.substrates.jax.distributions as tfd
 import logging
 import time
+import gc
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,11 +28,10 @@ class SMC:
             key,
             observations,
             num_particles: int=100, 
-            max_nsims: int=1000,
-            eps_init: float=10.0,
-            eps_last: float=0.1,
-            eps_decay: float=0.9,
+            qmax: float=0.9,
+            sigma: float=1.0,
             ess_min: float=0.5,
+            eps_init: float=10.0,
             logger=sys.stdout
             ):
         
@@ -43,13 +44,14 @@ class SMC:
 
         def cond_fun(carry):
 
-            _, _, _, _, _, count_sims, _ = carry
+            _, _, _, _, _, _, _, q = carry
 
-            return count_sims < max_nsims
+            return q < qmax
 
 
         def _step(carry):
-            particles, weights, cov, key, log_ess, count_sims, eps = carry
+
+            particles, weights, cov, key, log_ess, count_sims, eps, _ = carry
             chol = jnp.linalg.cholesky(cov)
             log_ess_min = jnp.log(ess_min)
             log_n_particles = jnp.log(num_particles)
@@ -109,8 +111,12 @@ class SMC:
 
             debug.print('count_sims------- {x}',x=count_sims)
 
-            eps =  1.0 * jnp.mean(acc_dists)         
-            carry = (new_particles, new_weights, cov, key, log_ess, count_sims, eps)
+            q = find_quantile(particles, new_particles, sigma)
+            acc_dists = jnp.sort(acc_dists)
+            q_index = jnp.array([q * len(acc_dists)])
+            q_index = q_index.astype(int)
+            eps = acc_dists[q_index[0]]                    
+            carry = (new_particles, new_weights, cov, key, log_ess, count_sims, eps, q)
 
             return carry
 
@@ -120,9 +126,12 @@ class SMC:
         prt_dim = init_particles.shape[1]
         init_weights = jnp.ones(num_particles) / num_particles
         init_cov = jnp.cov(init_particles.T, aweights=init_weights).reshape((prt_dim, prt_dim))
-        carry = (init_particles, init_weights, init_cov, key, 0.0, 0, eps_init)
-        particles, weights, cov, key, log_ess, count_sims, acc_dist  = lax.while_loop(cond_fun, _step, carry)
+        carry = (init_particles, init_weights, init_cov, key, 0.0, 0, eps_init, 0.0)
+        particles, weights, cov, key, log_ess, count_sims, eps, q  = lax.while_loop(cond_fun, _step, carry)
         is_nan = jnp.isnan(particles).any()
+
+        gc.collect()
+        jax.clear_backends()
 
         return particles, weights, count_sims
     

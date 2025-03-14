@@ -94,7 +94,7 @@ def sq_maximum_mean_discrepancy(xs, ys, wxs=None, wys=None, scale=None, return_s
     xy_sq_dists = np.sum(np.array([x1 - y2 for x1, y2 in itertools.product(xs, ys)]) ** 2, axis=1)
 
     scale = np.median(np.sqrt(np.concatenate([xx_sq_dists, yy_sq_dists, xy_sq_dists]))) if scale is None else scale
-    c = -0.5 / (scale ** 2)
+    c = - 0.5 / (scale ** 2)
 
     if wxs is None:
         kxx = np.sum(np.exp(c * xx_sq_dists)) / (n_x * (n_x - 1))

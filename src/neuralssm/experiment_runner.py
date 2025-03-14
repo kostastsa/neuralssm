@@ -131,10 +131,9 @@ class ExperimentRunner:
                 results = abc_runner.run(
                     key,
                     observations,
-                    eps_init=inf_desc.eps_init,
-                    eps_last=inf_desc.eps_last,
-                    eps_decay=inf_desc.eps_decay,
                     num_particles=inf_desc.n_samples,
+                    qmax=inf_desc.qmax,
+                    sigma=inf_desc.sigma,
                     logger=logger
                 )
 

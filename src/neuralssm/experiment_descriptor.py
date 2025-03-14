@@ -244,10 +244,8 @@ class SMC_ABC_Descriptor(ABC_Descriptor):
     def __init__(self, str):
 
         self.n_samples = None
-        self.max_nsims = None
-        self.eps_init = None
-        self.eps_last = None
-        self.eps_decay = None
+        self.qmax = None
+        self.sigma = None
         self.parse(str)
 
     def pprint(self):
@@ -255,10 +253,8 @@ class SMC_ABC_Descriptor(ABC_Descriptor):
         str = 'smc_abc\n'
         str += '\t{\n'
         str += '\t\tn_samples: {0},\n'.format(self.n_samples)
-        str += '\t\tmax_nsims: {0},\n'.format(self.max_nsims)
-        str += '\t\teps_init: {0},\n'.format(self.eps_init)
-        str += '\t\teps_last: {0},\n'.format(self.eps_last)
-        str += '\t\teps_decay: {0}\n'.format(self.eps_decay)
+        str += '\t\qmax: {0},\n'.format(self.qmax)
+        str += '\t\tsigma: {0}\n'.format(self.sigma)
         str += '\t}'
 
         return str
@@ -266,25 +262,21 @@ class SMC_ABC_Descriptor(ABC_Descriptor):
     def parse(self, str):
 
         str = util.misc.remove_whitespace(str)
-        m = re.match(r'smc_abc\{n_samples:(.*),max_nsims:(.*),eps_init:(.*),eps_last:(.*),eps_decay:(.*)\}\Z', str)
+        m = re.match(r'smc_abc\{n_samples:(.*),qmax:(.*),sigma:(.*)\}\Z', str)
 
         if m is None:
             raise ParseError(str)
 
         self.n_samples = int(m.group(1))
-        self.max_nsims = int(m.group(2))
-        self.eps_init = float(m.group(3))
-        self.eps_last = float(m.group(4))
-        self.eps_decay = float(m.group(5))
+        self.qmax = float(m.group(2))
+        self.sigma = float(m.group(3))
 
     def get_id(self, delim='_'):
 
         id = 'smcabc'
         id += delim + 'samples' + delim + str(self.n_samples)
-        id += delim + 'maxnsims' + delim + str(self.max_nsims)
-        id += delim + 'epsinit' + delim + str(self.eps_init)
-        id += delim + 'epslast' + delim + str(self.eps_last)
-        id += delim + 'epsdecay' + delim + str(self.eps_decay)
+        id += delim + 'qmax' + delim + str(self.qmax)
+        id += delim + 'sigma' + delim + str(self.sigma)
 
         return id
 
