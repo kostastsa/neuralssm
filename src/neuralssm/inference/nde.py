@@ -5,7 +5,7 @@ from functools import partial
 from util.train import get_sds, subsample_fn, lag_ds, _get_data_loaders, train_step, logdensity_fn
 from util.param import  sample_prior
 from util.sample import sample_logpdf
-from util.misc import compute_distances
+from util.numerics import compute_distances
 from flax import nnx
 import optax
 import time
@@ -29,24 +29,34 @@ class SequentialNeuralLikelihood:
         train_loader, val_loader = loaders
         train_losses = []
         val_losses = []
-        for _ in range(num_epochs):
+
+        for epoch in range(num_epochs):
+
             model.train()
             train_loss = []
             val_loss = []
             model.train()
+
             for batch in train_loader:
+
                 batch = jnp.array(batch)
                 loss = train_step(model, optimizer, batch)
                 train_loss.append(loss)
+
             model.eval()
+
             for batch in val_loader:
+
                 batch = jnp.array(batch)
                 loss = model.loss_fn(batch)
                 val_loss.append(loss)
+
             train_loss = jnp.mean(jnp.array(train_loss))
             val_loss = jnp.mean(jnp.array(val_loss))
             train_losses.append(train_loss)
             val_losses.append(val_loss)
+
+        print(f"--------Epoch {epoch}, training loss: {train_loss}, \n\t\t validation loss: {val_loss}")
 
         return model
 
@@ -152,8 +162,7 @@ class SequentialNeuralLikelihood:
             logger.write('---------training model\n')
 
             optimizer = nnx.Optimizer(model, optax.adamw(learning_rate, weight_decay=1e-6)) 
-            model = self.train_model(model, optimizer, loaders, num_epochs)
-
+            model = self.train_model(model, optimizer, loaders, num_epochs)            
             logger.write('---------sampling new parameters\n')
 
             # Sample new parameters using trained likelihood and MCMC

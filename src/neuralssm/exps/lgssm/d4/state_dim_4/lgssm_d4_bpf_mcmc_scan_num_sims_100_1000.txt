@@ -1,0 +1,64 @@
+experiment
+{
+	sim: lgssm
+	{
+		state_dim: 4,
+		emission_dim: 4,
+		num_timesteps: 100,
+		target_vars: d4
+	},
+	inf: bpf_mcmc
+	{
+		num_prt: 100,
+		num_iters: 5,
+		mcmc_steps: 1000
+	}
+}
+experiment
+{
+	sim: lgssm
+	{
+		state_dim: 4,
+		emission_dim: 4,
+		num_timesteps: 100,
+		target_vars: d4
+	},
+	inf: bpf_mcmc
+	{
+		num_prt: 200,
+		num_iters: 5,
+		mcmc_steps: 1000
+	}
+}
+experiment
+{
+	sim: lgssm
+	{
+		state_dim: 4,
+		emission_dim: 4,
+		num_timesteps: 100,
+		target_vars: d4
+	},
+	inf: bpf_mcmc
+	{
+		num_prt: 500,
+		num_iters: 5,
+		mcmc_steps: 1000
+	}
+}
+experiment
+{
+	sim: lgssm
+	{
+		state_dim: 4,
+		emission_dim: 4,
+		num_timesteps: 100,
+		target_vars: d4
+	},
+	inf: bpf_mcmc
+	{
+		num_prt: 1000,
+		num_iters: 5,
+		mcmc_steps: 1000
+	}
+}

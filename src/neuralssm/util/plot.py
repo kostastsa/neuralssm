@@ -2,6 +2,12 @@ import numpy as np
 import scienceplots # type: ignore
 import matplotlib.pyplot as plt # type: ignore
 import matplotlib_inline # type: ignore
+from util.numerics import compute_acf
+import jax.random as jr
+from util.param import to_train_array, sample_prior
+import jax.numpy as jnp
+from util.sample import map_sims
+
 plt.style.use(['science', 'ieee'])
 matplotlib_inline.backend_inline.set_matplotlib_formats('svg')
 
@@ -253,3 +259,39 @@ def plot_traces(xs, var_names=None):
     plt.show(block=False)
 
     return fig
+
+
+def get_acf_plot(key, ssm, max_lag, state_dim, emission_dim, num_timesteps, target_vars):
+
+    setup = ssm.setup(state_dim, emission_dim, 0, target_vars)
+    ssmodel = setup['ssm']
+    props = setup['props']
+    info = setup['exp_info']
+    name = info['sim']
+    key, subkey = jr.split(key)
+    params = sample_prior(jr.PRNGKey(0), props, 100)
+    acfs_all_runs = []
+    states_all_runs = []
+    emissions_all_runs = []
+
+    for param in params:
+
+        cp = to_train_array(param, props)
+        key, subkey = jr.split(key)
+        states, emissions = map_sims(subkey, cp, props, ssmodel, num_timesteps)
+        states_all_runs.append(states)
+        emissions_all_runs.append(emissions)
+        acfs = compute_acf(emissions, max_lag)
+        acfs_all_runs.append(acfs)
+
+    acfs_all_runs = jnp.array(acfs_all_runs)
+    states_all_runs = jnp.array(states_all_runs)
+    emissions_all_runs = jnp.array(emissions_all_runs)
+
+
+    fig, ax = plt.subplots(2, 1, figsize=(5, 5))
+
+    ax[0].plot(acfs_all_runs.mean(0), label='acf')
+    ax[0].set_ylabel('$||\mathbf{C}_L||_F$')
+
+    return fig, ax

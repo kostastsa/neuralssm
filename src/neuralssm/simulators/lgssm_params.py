@@ -63,7 +63,7 @@ def _param_dists(state_dim, emission_dim, input_dim):
     scale_tril_column=scale_column)
 
     # dynamics_covariance
-    dynamics_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(m), scale_diag=0.1*jnp.ones(m))
+    dynamics_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(m), scale_diag=1.0*jnp.ones(m))
 
     # emission_weights
     mu = 1.0 * jnp.eye(emission_dim, state_dim)
@@ -94,7 +94,7 @@ def _param_dists(state_dim, emission_dim, input_dim):
 
     # emission_covariance
     l = emission_dim * (emission_dim + 1) // 2
-    emission_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(l), scale_diag=0.1*jnp.ones(l))
+    emission_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(l), scale_diag=1.0*jnp.ones(l))
 
     param_dists = [[initial_mean_dist, initial_covariance_dist],
                     [dynamics_weights_dist, dynamics_bias_dist, dynamics_input_weights_dist, dynamics_covariance_dist],

@@ -13,7 +13,8 @@ import util.io
 
 
 def setup(state_dim, emission_dim, input_dim, target_vars):
-    
+
+    name = 'svssm'
     param_names = [['mean', 'cov'],
                 ['weights', 'bias', 'input_weights', 'cov'],
                 ['bias', 'cov', 'beta', 'sigma']]
