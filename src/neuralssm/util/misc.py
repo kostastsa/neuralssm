@@ -2,8 +2,10 @@ import re
 import numpy as np
 import jax.numpy as jnp
 from jax import lax, vmap, random as jr
-import jax.scipy.stats as jss
 from jax.tree_util import tree_map
+import util.io
+import os
+import experiment_descriptor as ed
 
 
 def remove_whitespace(str):
@@ -58,6 +60,7 @@ def look_up(name):
     
     return field_cd + param_cd
 
+
 def get_bool_tree(target_vars, param_names):
     r"""Returns a tree of booleans with the same structure as target_vars.
     """
@@ -87,139 +90,110 @@ def swap_axes_on_values(outputs, axis1=0, axis2=1):
     return dict(map(lambda x: (x[0], jnp.swapaxes(x[1], axis1, axis2)), outputs.items()))
 
 
-def kmeans(key, data, num_clusters, tol=1e-4):
-    dx = data.shape[1]
-
-    def cond_fun(carry):
-        old_centroids, new_centroids = carry
-        any_nans = jnp.isnan(new_centroids).any()
-        return jnp.logical_and(jnp.linalg.norm(old_centroids - new_centroids) > tol, any_nans)
-
-    def _step(carry):
-        _, centroids = carry
-        distances = vmap(lambda x: vmap(lambda x, mu: jnp.linalg.norm(x - mu), in_axes=(None, 0))(x, centroids))(data)
-        cluster_assignments = jnp.argmin(distances, axis=1)
-        new_centroids = vmap(lambda i: jnp.sum(jnp.where(jnp.tile(cluster_assignments==i, (dx,1)).T, data, 0.0), axis=0) / jnp.sum(cluster_assignments==i))(jnp.arange(num_clusters))
-        carry = (centroids, new_centroids)
-        return carry
-
-    init_carry = (jnp.zeros((num_clusters, dx)), jr.choice(key, data, (num_clusters,)))
-    out = lax.while_loop(cond_fun, _step, init_carry)
+def get_exp_dir(inf,
+            sim,
+            state_dim,
+            emission_dim,
+            num_timesteps,
+            vars,
+            num_samples=None,
+            num_rounds=None,
+            train_on=None,
+            subsample=None,
+            num_prt=None,
+            qmax=None,
+            sigma=None,
+            num_iters=None,
+            mcmc_steps=None,
+            lag=None,
+            dhidden=None,
+            dt_obs = 0.1):
     
-    return out[1]
+    data_root = '/Users/kostastsampourakis/Desktop/code/Python/projects/neuralssm/src/neuralssm/data/experiments/'
 
+    if inf == 'smc_abc':
 
-def kde_error(positions, true_cps):
+        inf_dir = f'abc/smcabc_samples_{num_prt}_qmax_{qmax}_sigma_{sigma}'
+
+    elif inf == 'bpf_mcmc':
+
+        inf_dir = f'mcmc/bpf_numprt_{num_prt}_numiters_{num_iters}_mcmcsteps_{mcmc_steps}'
+    
+    elif inf == 'snl':
+
+        inf_dir = f'nde/snl/samples_{num_samples}_rounds_{num_rounds}_train_on_{train_on}_mcmc_steps_{mcmc_steps}/maf_nmades_5_dhidden_32_nhiddens_5'
+
+    elif inf == 'tsnl':
+
+        inf_dir = f'nde/tsnl/samples_{num_samples}_rounds_{num_rounds}_lag_{lag}_subsample_{subsample}_train_on_{train_on}_mcmc_steps_{mcmc_steps}/maf_nmades_5_dhidden_{dhidden}_nhiddens_5'
+
+    if sim == 'lgssm':
+
+        sim_dir = data_root + f'{sim}/state-dim_{state_dim}_emission-dim_{emission_dim}_num-timesteps_{num_timesteps}_target-vars_{vars}/'
         
-        kernel_points = positions.T
-        kde = jss.gaussian_kde(kernel_points)
-        error = -jnp.log(kde.evaluate(true_cps))
-        return error
+    elif sim == 'svssm':
+
+        sim_dir = data_root + f'{sim}/state-dim_{state_dim}_emission-dim_{emission_dim}_num-timesteps_{num_timesteps}_target-vars_{vars}/'
+
+    elif sim == 'lvssm':
+
+        sim_dir = data_root + f'{sim}/emission-dim_{emission_dim}_num-timesteps_{num_timesteps}_dt_obs_{dt_obs}_target-vars_{vars}/'
+
+    exp_dir = sim_dir + inf_dir
+
+    return exp_dir
 
 
-def rms_error(cps, true_cps):
+def get_exp_data(exp_dir, start_trial, end_trial):
 
-    return jnp.linalg.norm(jnp.mean(cps, axis=0) - true_cps)
-
-
-def bootstrap(key, rmse_array, B):
-    N = rmse_array.shape[0]
-    rmse_boot = jnp.zeros((B,))
-    boot_samples = []
-    for b in range(B):
-        key, subkey = jr.split(key)
-        ids = jr.randint(subkey, (N,), 0, N)
-        boot = rmse_array[ids]
-        rmse_boot = rmse_boot.at[b].set(jnp.mean(boot))
-        boot_samples.append(boot)
-    boot_samples = jnp.stack(boot_samples, axis=0)
-    return rmse_boot, boot_samples
-
-
-def compute_distances(emissions, observations, num_timesteps, emission_dim):
-
-    # ensure emissions has a leading dimension
-    if emissions.ndim == 2:
-        emissions = emissions[None, ...]
+    exp_data = {
+        'error': [],
+        'rmse': [],
+        'results': [],
+        'all_dists': [],
+        'mll': [],
+        'mmd': [],
+        'all_emissions': [],
+        'gt': [],
+        'posterior': [],
+        'model': [],
+        'props': []
+    }
     
-    distances = vmap(lambda sim_emissions: jnp.linalg.norm(observations - sim_emissions) / jnp.sqrt(num_timesteps * emission_dim))(emissions)
+    for trial in range(start_trial, end_trial+1):
 
-    return distances
+        print(f'Loading trial {trial}...')
 
+        for entry in exp_data.keys():
+            
+            try:
 
-def clear_nans(errors):
-    means = errors[:, 0]
-    stds = errors[:, 1]
-    nsims = errors[:, 2]
-    nans_infs = jnp.isnan(means) + jnp.isinf(means)
-    means = means[~nans_infs]
-    stds = stds[~nans_infs]
-    nsims = jnp.log(nsims[~nans_infs])
-    
-    nfail = jnp.sum(nans_infs)
-    success_pct = (1 - nfail / errors.size)
-    errors = errors[~jnp.isnan(errors)]
-    errors = errors[~jnp.isinf(errors)]
+                exp_data[entry].append(util.io.load(os.path.join(exp_dir + f'/{trial}', entry)))
 
-    out = jnp.array([means, stds, nsims]).T
+            except FileNotFoundError:
 
-    return out, nfail, success_pct
+                print(f'Entry {entry} not in file.')
+
+                continue
+
+    return exp_data
 
 
-def ratio(x, alpha, exp_matrix_gen, sample, sigma):
+def str_to_bool(str):
 
-    exp_values = vmap(exp_matrix_gen, in_axes=(None, 0, None))(x, sample, sigma)
-    ratio = alpha @ exp_values
+    """
+    Converts a string to a boolean value.
+    :param str: string to convert
+    :return: boolean value
+    """
 
-    return ratio, exp_values
+    if str.lower() == 'true':
 
-def exp_matrix_gen(x, y, sigma): 
-    return jnp.exp(-(0.5 / sigma**2) * jnp.linalg.norm(x - y)**2)
+        return True
 
-def find_quantile(prev_sample, new_sample, sigma=1.0):
-    '''Implements the method from the paper Adaptive Approximate Bayesian Computation
-    Tolerance Selection by Simola et al. to find the quantile parameter for the
-    '''
+    elif str.lower() == 'false':
 
-    n_samples = prev_sample.shape[0]
-    
-    exp_matrix = vmap(lambda x: vmap(exp_matrix_gen, in_axes=(None, 0, None))(x, prev_sample, sigma))(new_sample)
-    exp_matrix_0 = vmap(lambda x: vmap(exp_matrix_gen, in_axes=(None, 0, None))(x, prev_sample, sigma))(prev_sample)
-    e0 = jnp.sum(exp_matrix_0, axis=0) / n_samples
+        return False
 
-    def cond_fn(carry):
-        _, err = carry
-        return err > .1
-
-    def step(carry):
-
-        prev_alpha, err = carry
-        b = 1 / (exp_matrix @ prev_alpha)
-        new_alpha = prev_alpha * (exp_matrix.T @ b) / e0 / n_samples
-        err = jnp.linalg.norm(new_alpha - prev_alpha)
-        carry = new_alpha, err
-    
-        return carry
-
-    alpha_star, _ = lax.while_loop(cond_fn, step, (jnp.ones(n_samples), 2.0))
-
-    def _cond_fn(carry):
-        _, err = carry
-        return err > 0.01
-
-    def _step(carry):
-
-        prev_x, err = carry
-        r, exp_values = ratio(prev_x, alpha_star, exp_matrix_gen, prev_sample, sigma)
-        new_x = jnp.einsum('i,i,ij->j', alpha_star, exp_values, prev_sample) / r
-        err = jnp.linalg.norm(new_x - prev_x)
-        carry = new_x, err
-    
-        return carry
-
-    i_star = jnp.argmax(alpha_star)
-    x_star, _ = lax.while_loop(_cond_fn, _step, (prev_sample[i_star], 2.0))
-    c, _ = ratio(x_star, alpha_star, exp_matrix_gen, prev_sample, sigma)
-    q = 1 / c
-
-    return q
+    else:
+        raise ValueError(f"Invalid boolean string: {str}")

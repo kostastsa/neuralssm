@@ -104,3 +104,32 @@ def find_epsilon(sims_loader, obs_xs, acc_rate, show_hist=True):
         plt.show()
 
     return eps
+
+from collections import defaultdict
+import re
+
+def get_varying(fname):
+
+    with open(fname) as f:
+        content = f.read()
+
+    blocks = re.findall(r"experiment\s*{(.*?)}\s\}", content, re.DOTALL)
+
+    configs = []
+    for block in blocks:
+        params = dict(re.findall(r"(\w+):\s*([\w.]+)", block))
+        configs.append(params)
+
+    varying_keys = defaultdict(set)
+    for cfg in configs:
+        for k, v in cfg.items():
+            varying_keys[k].add(v)
+
+    varying = {k: sorted(vs, key=lambda x: float(x)) for k, vs in varying_keys.items() if len(vs) > 1}
+
+    for k in varying:
+        varying[k] = list(map(int, varying[k]))
+
+    variable_names = list(varying.keys())
+
+    return varying, variable_names

@@ -2,21 +2,24 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as onp
 from jax import vmap, lax, jit
+from jax.scipy.special import logsumexp as lse
 from jax.tree_util import tree_map
 from datasets.data_loaders import Data
 from flax import nnx
 from util.sample import sim_emissions
-from util.param import to_train_array, log_prior
-from util.misc import kmeans
+from util.param import to_train_array, log_prior, sample_prior
+from util.numerics import kmeans
 from functools import partial
 import torch # type: ignore
 
 
 def reshape_emissions(emissions, lag):
+    
     '''
     Takes the emission array and returns an array of stacked emissions with lag L.
     Each element of the new array has L+1 emissions stacked (L for conditioning and 1 for predicting).
     '''
+    
     num_timesteps, emission_dim = emissions.shape
     emissions = jnp.concatenate([jnp.zeros((lag, emission_dim)), emissions])
     lagged_emissions = []
@@ -28,8 +31,9 @@ def reshape_emissions(emissions, lag):
 
 
 def logdensity_fn(cond_params, model, emissions, props, lag):
+    
     '''
-    Computes the log density of the TAF (lag>0) and SNL (lag=0) models.
+    Computes the log density of the TSNL (lag>=0) and SNL (lag<0) models.
     '''
 
     if lag>=0:
@@ -46,11 +50,74 @@ def logdensity_fn(cond_params, model, emissions, props, lag):
 
     return lp
 
+
+def loglik_fn(cond_params, emissions, model, lag):
+    
+    '''
+    Computes the loglik of the T-SNL (lag>=0) and SNL (lag<0) models.
+    '''
+
+    # ensure has batch dimension
+    if len(cond_params.shape) == 1:
+
+        cond_params = cond_params[None]
+
+    if len(emissions.shape) == 2:
+
+        emissions = emissions[None]
+
+    # make equal size
+    if cond_params.shape[0] < emissions.shape[0]:
+    
+        cond_params = jnp.tile(cond_params, (emissions.shape[0], 1))
+    
+    elif emissions.shape[0] < cond_params.shape[0]:
+         
+        emissions = jnp.tile(emissions, (cond_params.shape[0], 1, 1))
+
+    if lag>=0:
+
+        lps = vmap(tsnl_loglik_fn, in_axes=(0, 0, None, None))(cond_params, emissions, model, lag)
+
+    else:
+         
+        lps = vmap(snl_loglik_fn, in_axes=(0, 0, None))(cond_params, emissions, model)
+
+    return lps
+
+
+def tsnl_loglik_fn(cond_params, emissions, model, lag):
+
+    lagged_emissions = reshape_emissions(emissions, lag)
+    tile_cond_params = jnp.tile(cond_params, (lagged_emissions.shape[0], 1))
+    lp = -model.loss_fn(jnp.concatenate([tile_cond_params, lagged_emissions], axis=1))
+
+    return tile_cond_params.shape[0] * lp
+
+
+def snl_loglik_fn(cond_params, emissions, model):
+     
+    lp = -model.loss_fn(jnp.concatenate([cond_params[None], emissions.flatten()[None]], axis=1))
+
+    return lp
+
+def marg_loglik(key, props, observations, model, n_samples, lag):
+
+    params = sample_prior(jr.PRNGKey(0), props, n_samples)
+    tta = partial(to_train_array, props=props)
+    cps = map(tta, params)
+    cps = jnp.array(list(cps))
+
+    return -jnp.log(n_samples) + lse(loglik_fn(cps, observations, model, lag))
+
+
 @nnx.jit  
 def train_step(model, optimizer, data):
+    
     '''
     Training step for the MAF model.
     '''
+    
     loss_fn = lambda model: model.loss_fn(data)
     loss, grads = nnx.value_and_grad(loss_fn)(model)
     optimizer.update(grads)
@@ -58,8 +125,10 @@ def train_step(model, optimizer, data):
 
 
 def get_sds(key, logger, learner, num_samples, params_sample, num_timesteps):
+    
     '''
     Returns the training dataset. 
+    
     '''
     assert num_samples == len(params_sample), 'Number of samples must match the number of parameters.'
     
@@ -117,4 +186,33 @@ def _get_data_loaders(dataset, batch_size):
         test_loader = torch.utils.data.DataLoader(test, batch_size=batch_size,)
 
         return train_loader, val_loader
+
+import jax
+import optax
+
+def find_mle(key, model, emissions, lag, props):
+
+    def loss_fn(cp):
+        return -loglik_fn(cond_params=cp, model=model, emissions=emissions, lag=lag).squeeze()
+
+    # Optimization step function
+    @jit
+    def step(x, opt_state):
+
+        loss, grads = jax.value_and_grad(loss_fn)(x)
+        updates, opt_state = optimizer.update(grads, opt_state, x)
+        x = optax.apply_updates(x, updates)
+        
+        return x, opt_state, loss
+
+    x = sample_prior(key, props, 1)[0]
+    x = to_train_array(x, props)
+    optimizer = optax.adam(learning_rate=0.1)
+    opt_state = optimizer.init(x)
+
+    for i in range(1000):
+
+        x, opt_state, loss = step(x, opt_state)
+
+    return x
 

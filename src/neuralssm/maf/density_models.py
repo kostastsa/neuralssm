@@ -167,6 +167,10 @@ class MAF(nnx.Module):
 
     def loss_fn(self, x):
 
+        ''' Computes the loss function of the MAF model, i.e., the
+            averaged likelihood of a batch of samples x. 
+        '''
+
         out, log_det = self(x)
         u = out[:, self.dcond:]
         loss = jnp.sum(u ** 2, axis=1)/2

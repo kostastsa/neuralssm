@@ -15,9 +15,9 @@ import util.io
 def emission_dist(params, state):
     return tfd.MultivariateNormalFullCovariance(loc=state[2], covariance_matrix=params.emissions.cov.value)
 
-def setup(state_dim, emission_dim, input_dim, target_vars, dt_obs=None):
+def setup(state_dim, emission_dim, input_dim, target_vars, dt_obs=0.01):
 
-
+    name = 'sirssm'
     # Initialize model and simulate dataset
     param_names = [['mean', 'cov'],
                    ['pre', 'post', 'log_rates'],
@@ -41,7 +41,7 @@ def setup(state_dim, emission_dim, input_dim, target_vars, dt_obs=None):
     out['inputs'] = None
     out['props'] = props
     out['exp_info'] = {
-        'sim' : 'lgssm',
+        'sim' : 'sirssm',
         'state_dim': 2,
         'emission_dim': emission_dim,
         'input_dim': 0,

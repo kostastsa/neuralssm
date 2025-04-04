@@ -7,13 +7,10 @@ import orbax.checkpoint as ocp
 
 from flax import nnx
 from maf.density_models import MAF
-import jax.random as jr
 
 import util.plot
 import util.io
 import util.math
-from util.misc import kde_error
-from jax import numpy as jnp, vmap
 
 import experiment_descriptor as ed
 from util.param import to_train_array

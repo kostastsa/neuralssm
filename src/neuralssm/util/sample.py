@@ -1,6 +1,6 @@
 import jax.random as jr
 import jax.numpy as jnp
-from jax import jit, lax, debug
+from jax import jit, lax, debug, vmap
 import blackjax
 from util.param import get_unravel_fn, tree_from_params, join_trees, params_from_tree, sample_prior, to_train_array
 from blackjax.mcmc.elliptical_slice import as_top_level_api
@@ -8,9 +8,11 @@ from functools import partial
 
 
 def map_sims(key, cond_param, props, ssmodel, num_timesteps):
+
     ''' Takes parameters in conditional form and
     returns emissions from ssmodel. ''
     '''
+
     xp = sample_prior(key, props)[0]
     unravel_fn = get_unravel_fn(xp, props)
     unravel = unravel_fn(cond_param)
@@ -20,7 +22,8 @@ def map_sims(key, cond_param, props, ssmodel, num_timesteps):
     param.from_unconstrained(props)
 
     _, emissions = ssmodel.simulate(key, param, num_timesteps)
-    return emissions
+
+    return _, emissions
 
 
 def sim_emissions(key, param, ssm, num_timesteps):
@@ -124,6 +127,7 @@ def generate_emissions(key, emission_dim, model, cond_param, num_samples, lag, n
 
             emissions = []
             prev_lagged_emissions = jnp.zeros((lag, emission_dim))
+            skip_outer = False
             t=0
 
             while t < num_timesteps:
@@ -134,7 +138,9 @@ def generate_emissions(key, emission_dim, model, cond_param, num_samples, lag, n
                 new_emission = gen[-emission_dim:]
 
                 if jnp.isnan(new_emission).any() | jnp.isinf(new_emission).any():
-
+                    
+                    print('NaN or Inf generated')
+                    skip_outer = True
                     break
 
                 else: 
@@ -143,6 +149,10 @@ def generate_emissions(key, emission_dim, model, cond_param, num_samples, lag, n
                     emissions.append(new_emission)
                     t += 1
                     # print(f'emission at timestep {t} generated')
+
+            if skip_outer:
+
+                continue
 
             sim_emission = jnp.array(emissions)
             is_nanUinf = jnp.isnan(sim_emission).any() | jnp.isinf(sim_emission).any()
@@ -157,7 +167,7 @@ def generate_emissions(key, emission_dim, model, cond_param, num_samples, lag, n
                 count += 1
                 print(f'Sample {count} generated')
 
-        all_emissions=jnp.array(all_emissions)
+        all_emissions = jnp.array(all_emissions)
 
     else:
 
@@ -165,3 +175,22 @@ def generate_emissions(key, emission_dim, model, cond_param, num_samples, lag, n
         all_emissions = model.generate(subkey, num_samples, cond_param[None])[:, n_params:]
 
     return all_emissions
+
+
+def get_eps_init(key, k, observations, ssm, props, num_timesteps, num_particles):
+
+    emission_dim = ssm.emission_dim
+    key, subkey = jr.split(key)
+    kN_ps = sample_prior(subkey, props, k * num_particles)
+    kN_cps = jnp.array(list(map(lambda ps: to_train_array(ps,props), kN_ps)))
+
+    # # Simulate emissions
+    key, subkey = jr.split(key)
+    _, sim_emissions = vmap(lambda particle: map_sims(subkey, particle, props, ssm, num_timesteps))(kN_cps)
+
+    # # Compute distance
+    dists = vmap(lambda emissions: jnp.linalg.norm(observations - emissions) / jnp.sqrt(num_timesteps * emission_dim))(sim_emissions)
+    min_dists = jnp.sort(dists, axis=0)[:num_particles]
+    eps = jnp.max(min_dists)
+
+    return eps

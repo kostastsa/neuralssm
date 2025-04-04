@@ -8,6 +8,7 @@ import util.plot
 import util.io
 import util.math
 from util.param import sample_prior, to_train_array, get_unravel_fn, tree_from_params, join_trees, params_from_tree
+from util.train import marg_loglik
 from flax import nnx
 from maf.density_models import MAF
 import experiment_descriptor as ed
@@ -138,13 +139,14 @@ class ExperimentRunner:
                 )
 
             else:
+
                 raise TypeError('unknown ABC algorithm')
             
             util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
             util.io.save(abc_runner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
-            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
+            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'exp_desc.txt'))
             util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
 
             del results
@@ -226,7 +228,7 @@ class ExperimentRunner:
             util.io.save(results, os.path.join(exp_dir, 'results'))
             util.io.save_txt(str(mcmc_runner.time), os.path.join(exp_dir, 'time.txt'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
-            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
+            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'exp_desc.txt'))
             util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
 
             del results
@@ -258,6 +260,7 @@ class ExperimentRunner:
         ssm = sim_setup['ssm']
         props = sim_setup['props']
         inputs = sim_setup['inputs']
+        is_target = sim_setup['exp_info']['is_target']
         param_names = sim_setup['exp_info']['param_names']
         is_constrained_tree = sim_setup['exp_info']['constrainers']
         key, subkey = jr.split(key)
@@ -297,9 +300,10 @@ class ExperimentRunner:
 
             n_inputs = sim_desc.emission_dim * sim_desc.num_timesteps
             n_cond = to_train_array(xparam, props).shape[0]
-            key_model, key_learner = jr.split(key)
+            key_model, key_learner, key = jr.split(key, 3)
             model = self._create_model(n_inputs, n_cond, key_model)
             learner = nde.SequentialNeuralLikelihood(props, ssm, lag=-1)
+            model_desc = self.exp_desc.inf.model
 
             model, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
                 key=key_learner,
@@ -311,10 +315,16 @@ class ExperimentRunner:
                 num_posterior_samples=n_post_samples,
                 train_on=inf_desc.train_on,
                 mcmc_steps=inf_desc.mcmc_steps,
+                num_epochs=model_desc.nepochs,
+                learning_rate=model_desc.lr,
                 logger=logger
 
             )
 
+            key, subkey = jr.split(key)
+            mll = marg_loglik(subkey, props, observations, model, 100, -1)
+
+            util.io.save(mll, os.path.join(exp_dir, 'mll'))
             util.io.save(nnx.split(model), os.path.join(exp_dir, 'model'))
             util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
@@ -323,7 +333,7 @@ class ExperimentRunner:
             util.io.save((posterior_sample, posterior_cond_sample), os.path.join(exp_dir, 'posterior'))
             util.io.save(learner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples), os.path.join(exp_dir, 'all_dists'))
-            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
+            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'exp_desc.txt'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
             util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
 
@@ -406,6 +416,7 @@ class ExperimentRunner:
             key_model, key_learner = jr.split(key)
             model = self._create_model(n_inputs, n_cond, key_model)
             learner = nde.SequentialNeuralLikelihood(props, ssm, lag=inf_desc.lag)
+            model_desc = self.exp_desc.inf.model
 
             _, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
                 key=key_learner,
@@ -419,9 +430,15 @@ class ExperimentRunner:
                 mcmc_steps=inf_desc.mcmc_steps,
                 logger=logger,
                 num_tiles = num_tiles,
+                num_epochs = model_desc.nepochs,
+                learning_rate = model_desc.lr,
                 subsample = subsample
             )
 
+            key, subkey = jr.split(key)
+            mll = marg_loglik(subkey, props, observations, model, 100, inf_desc.lag)
+
+            util.io.save(mll, os.path.join(exp_dir, 'mll'))
             util.io.save(nnx.split(model), os.path.join(exp_dir, 'model'))
             util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
@@ -430,7 +447,7 @@ class ExperimentRunner:
             util.io.save(learner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples), os.path.join(exp_dir, 'all_dists'))
             util.io.save((posterior_sample, posterior_cond_sample), os.path.join(exp_dir, 'posterior'))
-            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'info.txt'))
+            util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'exp_desc.txt'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
             util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
 
@@ -441,6 +458,7 @@ class ExperimentRunner:
             jax.clear_backends()
 
     def _create_model(self, n_inputs, n_cond, rng):
+
         """
         Given input and output sizes, creates and returns the model for the NDE experiments.
         """
@@ -464,4 +482,5 @@ class ExperimentRunner:
             )
 
         else:
+
             raise TypeError('unknown model descriptor')

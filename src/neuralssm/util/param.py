@@ -5,11 +5,14 @@ from jax.flatten_util import ravel_pytree
 from jax import jit
 from typing import Union, Tuple, List
 import tensorflow_probability.substrates.jax.distributions as tfd
+import numpyro.distributions as npyrod # type: ignore
 import tensorflow_probability.substrates.jax.bijectors as tfb
 from functools import reduce, partial
 from dynamax.types import PRNGKey # type: ignore
 from jax.tree_util import tree_map
 from parameters import ParameterProperties, ParamField, Field, ParamSSM
+import numpyro.distributions as dist # type: ignore
+
 
 
 def get_unravel_fn(params, props):
@@ -115,22 +118,38 @@ def sample_prior(
     tree = []
     param_names = []
     is_constrained_tree = []
+
     for field_name in ['initial', 'dynamics', 'emissions']:
+
         field = getattr(prior, field_name)
         subtree = []
         param_subnames = []
         is_constrained_subtree = []
+
         for subfield_name in field.__dict__:
+
             subfield = getattr(field, subfield_name)
+
             if isinstance(subfield.prior, tfd.Distribution):
+
                 key, subkey = jr.split(key)
                 value = subfield.prior.sample(num_samples, subkey)
                 is_constrained_subtree.append(False)
+
+            elif isinstance(subfield.prior, npyrod.continuous.MatrixNormal):
+
+                key, subkey = jr.split(key)
+                value = subfield.prior.sample(subkey, (num_samples,))
+                is_constrained_subtree.append(False)
+
             else:
+
                 value = jnp.tile(subfield.prior, (num_samples, *tuple(1 for _ in range(subfield.prior.ndim))))
                 is_constrained_subtree.append(True)
+
             subtree.append(value)
             param_subnames.append(subfield_name)
+
         is_constrained_tree.append(is_constrained_subtree)
         param_names.append(param_subnames)
         tree.append(subtree)
@@ -153,7 +172,7 @@ def initialize(
     Returns:
 
     """
-    is_trainable = tree_map(lambda field: isinstance(field, tfd.Distribution), prior_fields, is_leaf=lambda x: not isinstance(x, list))
+    is_trainable = tree_map(lambda field: isinstance(field, tfd.Distribution) | isinstance(field, dist.MatrixNormal), prior_fields, is_leaf=lambda x: not isinstance(x, list))
     properties_tree = tree_map(lambda is_trainable, constrainer: ParameterProperties(is_trainable, constrainer), is_trainable, constrainers)
     props_prior_tree = tree_map(lambda props, prior:  Field([props, prior], ['props', 'prior']), properties_tree, prior_fields, is_leaf=lambda x: not isinstance(x, list))
 
