@@ -2,8 +2,10 @@ import jax.numpy as jnp
 from typing import List
 import tensorflow_probability.substrates.jax.distributions as tfd
 import tensorflow_probability.substrates.jax.bijectors as tfb
+from util.bijectors import VecToCorrMat, RealToPSDBijector, RealVecToStableMat
 from typing import Optional, runtime_checkable
 from typing_extensions import Protocol
+import abc
 from jax.tree_util import register_pytree_node_class
 
 @runtime_checkable
@@ -127,52 +129,95 @@ class ParamSSM():
         return str
 
     def to_unconstrained(self, props):
+
         for field_name in ['initial', 'dynamics', 'emissions']:
+
             field = getattr(self, field_name)
             props_field = getattr(props, field_name)
+
             for subfield_name in field.__dict__:
+
                 subfield = getattr(field, subfield_name)
                 props_subfield = getattr(props_field, subfield_name)
-                if subfield.is_constrained:
-                    constrainer = props_subfield.props.constrainer
+                constrainer = props_subfield.props.constrainer
+                print(f"""field_name: {field_name}, subfield_name: {subfield_name}, constrainer: {type(constrainer)}""")
+                print(isinstance(constrainer, tfb.Exp), isinstance(constrainer, abc.ABCMeta), isinstance(constrainer, tfb.bijector._AutoCompositeTensorBijectorMeta))
+
+                if constrainer is not None:
+
                     setattr(subfield, 'is_constrained', False)
-                    if constrainer is not None:
+
+                    if isinstance(constrainer, tfb.bijector._AutoCompositeTensorBijectorMeta):
+
                         setattr(subfield, 'value', constrainer().inverse(subfield.value))
 
+                    elif isinstance(constrainer, tfb.Exp) or isinstance(constrainer, VecToCorrMat):
+
+                        setattr(subfield, 'value', constrainer.inverse(subfield.value))
+
+                    else: 
+                        
+                        raise ValueError(f"Unknown constrainer type: {type(constrainer)}")
+
     def from_unconstrained(self, props):
+
         for field_name in ['initial', 'dynamics', 'emissions']:
+
             field = getattr(self, field_name)
             props_field = getattr(props, field_name)
+
             for subfield_name in field.__dict__:
+
                 subfield = getattr(field, subfield_name)
                 props_subfield = getattr(props_field, subfield_name)
+
                 if not subfield.is_constrained:
+
                     constrainer = props_subfield.props.constrainer
                     setattr(subfield, 'is_constrained', True)
+
                     if constrainer is not None:
-                        if isinstance(constrainer, tfb.Exp):
+
+                        if isinstance(constrainer, tfb.Exp) or isinstance(constrainer, VecToCorrMat) or isinstance(constrainer, RealVecToStableMat):
+
                             setattr(subfield, 'value', constrainer.forward(subfield.value))
+
                         else:
+
                             setattr(subfield, 'value', constrainer()(subfield.value))
 
     def _get_names(self):
+
         names_tree = []
+
         for field_name in ['initial', 'dynamics', 'emissions']:
+
             field = getattr(self, field_name)
             names_list = []
+
             for subfield_name in field.__dict__:
+
                 names_list.append(subfield_name)
+
             names_tree.append(names_list)
+
         return names_tree
     
     def _is_constrained_tree(self):
+
         is_constrained_tree = []
+
         for field_name in ['initial', 'dynamics', 'emissions']:
+
             field = getattr(self, field_name)
             is_constrained_list = []
+
             for subfield_name in field.__dict__:
+
                 is_constrained_list.append(getattr(getattr(field, subfield_name), 'is_constrained'))
+
             is_constrained_tree.append(is_constrained_list)
+
         return is_constrained_tree
 
 

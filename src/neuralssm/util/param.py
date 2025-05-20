@@ -8,29 +8,40 @@ import tensorflow_probability.substrates.jax.distributions as tfd
 import numpyro.distributions as npyrod # type: ignore
 import tensorflow_probability.substrates.jax.bijectors as tfb
 from functools import reduce, partial
-from dynamax.types import PRNGKey # type: ignore
 from jax.tree_util import tree_map
 from parameters import ParameterProperties, ParamField, Field, ParamSSM
 import numpyro.distributions as dist # type: ignore
 
+PRNGKey = jr.PRNGKey
 
 
 def get_unravel_fn(params, props):
 
     list_trainable_params = []
+
     for field_name in ['initial', 'dynamics', 'emissions']:
+
         field = getattr(params, field_name)
         props_field = getattr(props, field_name)
         sublist_trainable_params = []
+
         for subfield_name in field.__dict__:
+
             subfield = getattr(field, subfield_name)
             props_subfield = getattr(props_field, subfield_name)
+
             if props_subfield.props.trainable:
+
                 sublist_trainable_params.append(subfield.value)
+
             else:
+
                 sublist_trainable_params.append(jnp.array([]))
+
         list_trainable_params.append(sublist_trainable_params)
+
     _, unravel_fn = ravel_pytree(list_trainable_params)
+
     return unravel_fn
 
 
@@ -107,7 +118,7 @@ def join_trees(train_tree, untrain_tree, props):
 
 
 def sample_prior(
-    key: PRNGKey, 
+    key: PRNGKey,
     prior: ParamSSM, 
     num_samples: int=1):
     r"""Sample parameters from the prior distribution. When prior field is tfd.Distribution,

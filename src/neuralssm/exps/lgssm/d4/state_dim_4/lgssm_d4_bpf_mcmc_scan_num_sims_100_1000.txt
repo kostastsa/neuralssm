@@ -10,7 +10,7 @@ experiment
 	inf: bpf_mcmc
 	{
 		num_prt: 100,
-		num_iters: 5,
+		num_iters: 1,
 		mcmc_steps: 1000
 	}
 }
@@ -26,7 +26,7 @@ experiment
 	inf: bpf_mcmc
 	{
 		num_prt: 200,
-		num_iters: 5,
+		num_iters: 1,
 		mcmc_steps: 1000
 	}
 }
@@ -42,7 +42,7 @@ experiment
 	inf: bpf_mcmc
 	{
 		num_prt: 500,
-		num_iters: 5,
+		num_iters: 1,
 		mcmc_steps: 1000
 	}
 }
@@ -58,7 +58,7 @@ experiment
 	inf: bpf_mcmc
 	{
 		num_prt: 1000,
-		num_iters: 5,
+		num_iters: 1,
 		mcmc_steps: 1000
 	}
 }

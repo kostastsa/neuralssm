@@ -4,7 +4,7 @@ import jax # type: ignore
 from jax import numpy as jnp # type: ignore
 import os
 from simulators.ssm import SPN
-from dynamax.utils.bijectors import RealToPSDBijector # type: ignore
+from util.bijectors import RealToPSDBijector # type: ignore
 import tensorflow_probability.substrates.jax.bijectors as tfb
 import tensorflow_probability.substrates.jax.distributions as tfd # type: ignore
 from simulators.sirssm_params import _init_vals, _param_dists
@@ -62,7 +62,7 @@ def get_root():
     return 'data/simulators/lgssm'
 
 
-def get_ground_truth():
+def get_ground_truth(state_dim, target_vars=None):
     """
     Returns ground truth parameters and corresponding observed statistics.
     """

@@ -135,7 +135,6 @@ class SMC:
         is_nan = jnp.isnan(particles).any()
 
         gc.collect()
-        jax.clear_backends()
 
         return particles, weights, count_sims
     

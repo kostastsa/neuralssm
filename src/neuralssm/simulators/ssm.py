@@ -12,7 +12,7 @@ from jax import lax, vmap, debug
 from jax.scipy.special import logsumexp as lse, gammaln
 import jax.numpy as jnp
 import jax.random as jr
-from dynamax.types import PRNGKey # type: ignore
+from util.types import PRNGKey # type: ignore
 
 class SSM(ABC):
     r"""A base class for state space models. Such models consist of parameters, which
@@ -87,7 +87,7 @@ class SSM(ABC):
             inputs: current inputs  $u_t$
 
         Returns:
-            current emission 
+            current emission
 
         """
         raise NotImplementedError
@@ -133,6 +133,7 @@ class SSM(ABC):
             latent states and emissions
 
         """
+
         def _step(prev_state, args):
             key, inpt = args
             key1, key2, key = jr.split(key, 3)
@@ -155,7 +156,9 @@ class SSM(ABC):
         expand_and_cat = lambda x0, x1T: jnp.concatenate((jnp.expand_dims(x0, 0), x1T))
         states = tree_map(expand_and_cat, initial_state, next_states)
         emissions = tree_map(expand_and_cat, initial_emission, next_emissions)
+
         return states, emissions
+
 
 class LGSSM(SSM):
 
@@ -174,6 +177,7 @@ class LGSSM(SSM):
         params: ParamSSM,
         inputs: Optional[Float[Array, "input_dim"]]=None
     ) -> tfd.Distribution:
+
         return MVN(params.initial.mean.value, params.initial.cov.value)
 
     def dynamics_simulator(
@@ -182,9 +186,11 @@ class LGSSM(SSM):
         params: ParamSSM,
         state: Float[Array, "state_dim"],
         inputs: Optional[Float[Array, "ntime input_dim"]]=None):
+
         inputs = inputs if inputs is not None else jnp.zeros(self.input_dim)
         mean = params.dynamics.weights.value @ state + params.dynamics.input_weights.value @ inputs + params.dynamics.bias.value
         new_state = MVN(mean, params.dynamics.cov.value).sample(1, key)
+
         return new_state.flatten()
 
     def emission_simulator(
@@ -193,9 +199,11 @@ class LGSSM(SSM):
         params: ParamSSM,
         state: Float[Array, "state_dim"],
         inputs: Optional[Float[Array, "ntime input_dim"]]=None):
+
         inputs = inputs if inputs is not None else jnp.zeros(self.input_dim)
         mean = params.emissions.weights.value @ state + params.emissions.input_weights.value @ inputs + params.emissions.bias.value
         new_emission =  MVN(mean, params.emissions.cov.value).sample(1, key)
+        
         return new_emission.flatten()
     
     def emission_log_prob(
@@ -204,11 +212,14 @@ class LGSSM(SSM):
         emission: Float[Array, "emission_dim"],
         state: Float[Array, "state_dim"],
         inputs: Optional[Float[Array, "input_dim"]]=None):
+
         mean = params.emissions.weights.value @ state + params.emissions.input_weights.value @ inputs + params.emissions.bias.value
         cov = params.emissions.cov.value
         dist = MVN(mean, cov)
+        
         return dist.log_prob(emission)
     
+
 class SV(SSM):
     
     def __init__(
@@ -225,6 +236,7 @@ class SV(SSM):
         self,
         params: ParamSSM,
         inputs: Optional[Float[Array, "input_dim"]]=None) -> tfd.Distribution:
+
         return MVN(params.initial.mean.value, params.initial.cov.value)
 
     def dynamics_simulator(
@@ -233,9 +245,11 @@ class SV(SSM):
         params: ParamSSM,
         state: Float[Array, "state_dim"],
         inputs: Optional[Float[Array, "ntime input_dim"]]=None):
+
         inputs = inputs if inputs is not None else jnp.zeros(self.input_dim)
         mean = params.dynamics.weights.value @ state + params.dynamics.input_weights.value @ inputs + params.dynamics.bias.value
         new_state = MVN(mean, params.dynamics.cov.value).sample(1, key)
+
         return new_state.flatten()
 
     def emission_simulator(
@@ -244,9 +258,13 @@ class SV(SSM):
         params: ParamSSM,
         state: Float[Array, "state_dim"],
         inputs: Optional[Float[Array, "ntime input_dim"]]=None):
+
         inputs = inputs if inputs is not None else jnp.zeros(self.input_dim)
-        r = MVN(params.emissions.bias.value, params.emissions.cov.value).sample(1, key)
-        new_emission = params.emissions.beta.value * jnp.diag(jnp.exp(state / params.emissions.sigma.value[0])) @ r
+        dim = params.emissions.bias.value.shape[0]
+        r = MVN(jnp.zeros(dim), 0.1 * jnp.eye(dim)).sample(1, key)
+        chol = jnp.diag(jnp.exp(state)) @ params.emissions.corchol.value
+        new_emission = params.emissions.bias.value + chol @ r.flatten()
+
         return new_emission.flatten()
     
     def emission_log_prob(
@@ -255,11 +273,13 @@ class SV(SSM):
         emission: Float[Array, "emission_dim"],
         state: Float[Array, "state_dim"],
         inputs: Optional[Float[Array, "input_dim"]]=None):
-        V = params.emissions.beta.value * jnp.diag(jnp.exp(state / params.emissions.sigma.value[0]))
-        mean = V @ params.emissions.bias.value
-        cov = V @ params.emissions.cov.value @ V.T
+
+        mean = params.emissions.bias.value
+        cov = jnp.diag(jnp.exp(state)) @ params.emissions.corchol.value @ params.emissions.corchol.value.T @ jnp.diag(jnp.exp(state))
         dist = MVN(mean, cov)
+
         return dist.log_prob(emission)
+
 
 class SPN(SSM):
     '''
@@ -281,6 +301,7 @@ class SPN(SSM):
         self.emission_dist = emission_dist # emission function
         self.input_dim = input_dim
         self.dt_obs = dt_obs
+        self.max_reactions = 1000  # Cap on number of reactions per step
 
     log_power_hazard_fn = lambda self, state, pre, log_rates: vmap(lambda row, log_rate: log_rate + jnp.sum(vmap(lambda b, e: e * jnp.log(b))(state, row)))(pre, log_rates)
     log_bin =lambda self, N, k: gammaln(N + 1) - gammaln(k + 1) - gammaln(N - k + 1)
@@ -288,6 +309,7 @@ class SPN(SSM):
     log_bin_hazard_fn = lambda self, pop_state, pre, log_rates: vmap(lambda row, log_rate: log_rate + self.sum_log_bin(pop_state, row))(pre, log_rates)
 
     def log_hazard_fn(self, pop_state, pre, log_rates): 
+
         return self.log_bin_hazard_fn(pop_state, pre, log_rates)
 
     def initial_distribution(
@@ -295,6 +317,7 @@ class SPN(SSM):
         params: ParamSSM,
         inputs: Optional[Float[Array, "input_dim"]]=None
     ) -> tfd.Distribution:
+
         return MVN(params.initial.mean.value, params.initial.cov.value)
 
     def dynamics_simulator(
@@ -312,13 +335,10 @@ class SPN(SSM):
         S = (params.dynamics.post.value - params.dynamics.pre.value)
 
         def _cond_fn(val):
-
             state, _, _ = val
-            
             return state[0] < self.dt_obs
-        
-        def _while_step(_):
 
+        def _while_step(_):
             state, ireactions, key = _
             sumtime = state[0]
             pop_state = state[1:]
@@ -329,7 +349,7 @@ class SPN(SSM):
             dt = tfd.Exponential(jnp.exp(lh0)).sample(seed=subkey)
             lh -= jnp.max(lh)
             prob_vec = jnp.exp(lh) / jnp.sum(jnp.exp(lh))
-            
+
             key, subkey = jr.split(key)
             event = tfd.Categorical(probs=prob_vec).sample(seed=subkey)
 
@@ -342,11 +362,15 @@ class SPN(SSM):
             return new_state, ireactions, key
 
         carry = (state, 0, key)
-        next_state, _, _ = lax.while_loop(_cond_fn, _while_step, carry)
+        next_state, ireactions, _ = lax.while_loop(
+            lambda val: _cond_fn(val) & (val[1] < self.max_reactions),
+            _while_step,
+            carry
+        )
+
         sumtime = next_state[0]
         pop_state = next_state[1:]
         next_state = jnp.pad(pop_state, (1, 0), mode='constant', constant_values=sumtime-self.dt_obs)
-        
         return next_state
 
     def emission_simulator(
@@ -366,6 +390,7 @@ class SPN(SSM):
         emission: Float[Array, "emission_dim"],
         state: Float[Array, "state_dim"],
         inputs: Optional[Float[Array, "input_dim"]]=None):
+
         state = state[1:]
         return self.emission_dist(params, state).log_prob(emission)
 
@@ -410,3 +435,50 @@ class SPN(SSM):
         _, (states, emissions) = lax.scan(_step, initial_state, (next_keys, next_inputs))
 
         return states, emissions
+
+
+class NonlinearODE(SSM):
+    
+    def __init__(
+        self,
+        state_dim: int,
+        emission_dim: int,
+        dynamics_fn: Callable,  # f(t, z, params)
+        emission_dist: Callable,  # same pattern as SPN
+        input_dim: int = 0,
+        dt: float = 0.1,
+        solver = None  # optionally allow passing a custom solver
+    ):
+
+        self.state_dim = state_dim
+        self.emission_dim = emission_dim
+        self.dynamics_fn = dynamics_fn
+        self.emission_dist = emission_dist
+        self.input_dim = input_dim
+        self.dt = dt
+        self.solver = solver
+
+    def initial_distribution(self, params: ParamSSM, inputs=None):
+        return MVN(params.initial.mean.value, params.initial.cov.value)
+
+    def dynamics_simulator(self, key, params, state, inputs=None):
+
+        solver = self.solver or Dopri5()
+        term = ODETerm(lambda t, y, args: self.dynamics_fn(t, y, params))
+        sol = diffrax.diffeqsolve(
+            term,
+            solver=solver,
+            t0=0.0,
+            t1=self.dt,
+            dt0=self.dt,
+            y0=state,
+            args=None,
+            saveat=SaveAt(t1=True),
+        )
+        return sol.ys
+
+    def emission_simulator(self, key, params, state, inputs=None):
+        return self.emission_dist(params, state).sample(seed=key).flatten()
+
+    def emission_log_prob(self, params, emission, state, inputs=None):
+        return self.emission_dist(params, state).log_prob(emission)

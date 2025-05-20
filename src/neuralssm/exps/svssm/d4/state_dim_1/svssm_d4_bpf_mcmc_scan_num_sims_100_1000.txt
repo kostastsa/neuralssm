@@ -11,7 +11,7 @@ experiment
 	{
 		num_prt: 100,
 		num_iters: 1,
-		mcmc_steps: 10000
+		mcmc_steps: 1000
 	}
 }
 experiment
@@ -27,7 +27,7 @@ experiment
 	{
 		num_prt: 200,
 		num_iters: 1,
-		mcmc_steps: 10000
+		mcmc_steps: 1000
 	}
 }
 experiment
@@ -43,7 +43,7 @@ experiment
 	{
 		num_prt: 500,
 		num_iters: 1,
-		mcmc_steps: 10000
+		mcmc_steps: 1000
 	}
 }
 experiment
@@ -59,6 +59,6 @@ experiment
 	{
 		num_prt: 1000,
 		num_iters: 1,
-		mcmc_steps: 10000
+		mcmc_steps: 1000
 	}
 }

@@ -25,18 +25,23 @@ class SimulatorDescriptor:
     def get_descriptor(str):
 
         if re.match('lgssm', str):
+
             return LGSSM_Descriptor(str)
         
         elif re.match('lvssm', str):
+
             return LVSSM_Descriptor(str)
 
         elif re.match('svssm', str):
+
             return SVSSM_Descriptor(str)
         
         elif re.match('sirssm', str):
+
             return SIRSSM_Descriptor(str)
 
         else:
+
             raise ParseError(str)
 
 
@@ -296,19 +301,25 @@ class InferenceDescriptor:
 
     @staticmethod
     def get_descriptor(str=None):
+
         if re.match('smc_abc', str):
+
             return SMC_ABC_Descriptor(str)
 
         elif re.match('snl', str):
+
             return SNL_Descriptor(str)
         
         elif re.match('tsnl', str):
+
             return TSNL_Descriptor(str)
         
         elif re.match('bpf_mcmc', str):
+
             return BPF_MCMC_Descriptor(str)
 
         else:
+
             raise ParseError(str)
 
 
@@ -344,7 +355,7 @@ class SMC_ABC_Descriptor(ABC_Descriptor):
         str = 'smc_abc\n'
         str += '\t{\n'
         str += '\t\tn_samples: {0},\n'.format(self.n_samples)
-        str += '\t\qmax: {0},\n'.format(self.qmax)
+        str += '\t\tqmax: {0},\n'.format(self.qmax)
         str += '\t\tsigma: {0}\n'.format(self.sigma)
         str += '\t}'
 
@@ -643,7 +654,7 @@ class MAF_Descriptor(ModelDescriptor):
         str += '\t\t\trandom_order: {0},\n'.format(self.random_order)
         str += '\t\t\treverse: {0},\n'.format(self.reverse)
         str += '\t\t\tbatch_norm: {0},\n'.format(self.batch_norm)
-        str += '\t\t\tdropout: {0}\n'.format(self.dropout)
+        str += '\t\t\tdropout: {0},\n'.format(self.dropout)
         str += '\t\t\tnepochs: {0},\n'.format(self.nepochs)
         str += '\t\t\tlr: {0}\n'.format(self.lr)
         str += '\t\t}'
@@ -661,7 +672,7 @@ class MAF_Descriptor(ModelDescriptor):
         str += '\t\t\trandom_order: {0},\n'.format(random_order)
         str += '\t\t\treverse: {0},\n'.format(reverse)
         str += '\t\t\tbatch_norm: {0},\n'.format(batch_norm)
-        str += '\t\t\tdropout: {0}\n,'.format(dropout)
+        str += '\t\t\tdropout: {0},\n'.format(dropout)
         str += '\t\t\tnepochs: {0},\n'.format(nepochs)
         str += '\t\t\tlr: {0}\n'.format(lr)
         str += '\t\t}'

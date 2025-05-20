@@ -36,19 +36,11 @@ def _param_dists(state_dim, emission_dim, input_dim):
     initial_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(m), scale_diag=jnp.ones(m))
 
     # dynamics_weights
-    mu = 0.8 * jnp.eye(state_dim)
-    col_cov = jnp.eye(state_dim) * 0.01
-    row_cov = jnp.eye(state_dim) * 0.01
-    scale_column = jnp.linalg.cholesky(col_cov)
-    scale_row = jnp.linalg.cholesky(row_cov)
-
-    dynamics_weights_dist = dist.MatrixNormal(
-    loc=mu,
-    scale_tril_row=scale_row,
-    scale_tril_column=scale_column)
+    mean = (0.053 * jnp.eye(state_dim)).reshape((state_dim ** 2,))
+    dynamics_weights_dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=0.05*jnp.ones(state_dim**2))
 
     # dynamics_bias
-    dynamics_bias_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(state_dim), scale_diag= 1.0 * jnp.ones(state_dim))
+    dynamics_bias_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(state_dim), scale_diag=1.0*jnp.ones(state_dim))
 
     # dynamics_input_weights
     mu = 0.0 * jnp.eye(state_dim, input_dim)
@@ -63,7 +55,7 @@ def _param_dists(state_dim, emission_dim, input_dim):
     scale_tril_column=scale_column)
 
     # dynamics_covariance
-    dynamics_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(m), scale_diag=1.0*jnp.ones(m))
+    dynamics_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(m), scale_diag= 1.0 * jnp.ones(m))
 
     # emission_weights
     mu = 1.0 * jnp.eye(emission_dim, state_dim)

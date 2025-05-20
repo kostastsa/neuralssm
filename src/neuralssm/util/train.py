@@ -46,6 +46,7 @@ def logdensity_fn(cond_params, model, emissions, props, lag):
 
         lp = -model.loss_fn(jnp.concatenate([cond_params[None], emissions.flatten()[None]], axis=1))
 
+    # lp *= 0.5
     lp += log_prior(cond_params, props)
 
     return lp
@@ -146,7 +147,7 @@ def get_sds(key, logger, learner, num_samples, params_sample, num_timesteps):
 
     fn = partial(sim_emissions, ssm=learner.ssm, num_timesteps=num_timesteps)
     emissions = jnp.array(list(map(fn, keys, params_sample)))
-
+            
     return cond_params, emissions
 
 

@@ -2,6 +2,7 @@
 # authored by George Papamakarios under the MIT License
 import jax 
 from jax import random as jr # type: ignore
+import jax.numpy as jnp # type: ignore
 import os
 import gc
 import util.plot
@@ -22,6 +23,13 @@ import scienceplots # type: ignore
 
 plt.style.use(['science', 'ieee'])
 matplotlib_inline.backend_inline.set_matplotlib_formats('svg')
+
+# Activation functions
+def tanh_fn(x):
+    return jnp.tanh(x)
+
+def relu_fn(x):
+    return jnp.maximum(x, 0)
 
 class ExperimentRunner:
     """
@@ -49,27 +57,34 @@ class ExperimentRunner:
         print('RUNNING EXPERIMENT, TRIAL {0}:\n'.format(trial))
         print(self.exp_desc.pprint())
 
-        exp_dir = os.path.join(self.exp_dir, str(trial))
+        exp_dir = os.path.join(self.exp_dir, f'sample_gt_{sample_gt}', str(trial))
 
         if os.path.exists(exp_dir):
+
             raise misc.AlreadyExistingExperiment(self.exp_desc)
 
         util.io.make_folder(exp_dir)
 
         try:
+
             if isinstance(self.exp_desc.inf, ed.ABC_Descriptor):
+                
                 self._run_abc(exp_dir, sample_gt, plot_sims, key, seed)
 
             elif isinstance(self.exp_desc.inf, ed.PRT_MCMC_Descriptor):
+
                 self._run_prt_mcmc(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed)
 
             elif isinstance(self.exp_desc.inf, ed.SNL_Descriptor):
+
                 self._run_snl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed)
 
             elif isinstance(self.exp_desc.inf, ed.TSNL_Descriptor):
+
                 self._run_tsnl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed)
 
             else:
+                
                 raise TypeError('unknown inference descriptor')
 
         except:
@@ -100,6 +115,7 @@ class ExperimentRunner:
         ssm = sim_setup['ssm']
         props = sim_setup['props']
         inputs = sim_setup['inputs']
+        param_names = sim_setup['exp_info']['param_names']
         
         if sample_gt:
 
@@ -111,7 +127,18 @@ class ExperimentRunner:
 
         else:
             
-            true_ps, observations = self.sim.get_ground_truth()
+            key, subkey = jr.split(key)
+            xparam = sample_prior(subkey, props)[0]
+            true_cps = self.sim.get_ground_truth(sim_desc.state_dim, sim_desc.target_vars)
+            unravel_fn = get_unravel_fn(xparam, props)
+            unravel = unravel_fn(true_cps)
+            tree = tree_from_params(xparam)
+            new_tree = join_trees(unravel, tree, props)
+            is_constrained_tree = xparam._is_constrained_tree()
+            true_ps = params_from_tree(new_tree, param_names, is_constrained_tree)
+            true_ps.from_unconstrained(props)
+            key, subkey = jr.split(key)
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
         if plot_sims: 
 
@@ -125,23 +152,17 @@ class ExperimentRunner:
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
-            if isinstance(inf_desc, ed.SMC_ABC_Descriptor):
+            abc_runner = abc.SMC(props, ssm)
 
-                abc_runner = abc.SMC(props, ssm)
+            results = abc_runner.run(
+                key,
+                observations,
+                num_particles=inf_desc.n_samples,
+                qmax=inf_desc.qmax,
+                sigma=inf_desc.sigma,
+                logger=logger
+            )
 
-                results = abc_runner.run(
-                    key,
-                    observations,
-                    num_particles=inf_desc.n_samples,
-                    qmax=inf_desc.qmax,
-                    sigma=inf_desc.sigma,
-                    logger=logger
-                )
-
-            else:
-
-                raise TypeError('unknown ABC algorithm')
-            
             util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
             util.io.save(abc_runner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
@@ -151,9 +172,8 @@ class ExperimentRunner:
 
             del results
             abc_runner = None
-            jax.clear_backends()
+            jax.clear_caches()
             gc.collect()
-
 
     def _run_prt_mcmc(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed):
         """
@@ -177,7 +197,7 @@ class ExperimentRunner:
         ssm = sim_setup['ssm']
         props = sim_setup['props']
         inputs = sim_setup['inputs']
-        tin = time.time()
+        param_names = sim_setup['exp_info']['param_names']
 
         if sample_gt:
 
@@ -189,7 +209,18 @@ class ExperimentRunner:
 
         else:
             
-            true_ps, observations = self.sim.get_ground_truth()
+            key, subkey = jr.split(key)
+            xparam = sample_prior(subkey, props)[0]
+            true_cps = self.sim.get_ground_truth(sim_desc.state_dim, sim_desc.target_vars)
+            unravel_fn = get_unravel_fn(xparam, props)
+            unravel = unravel_fn(true_cps)
+            tree = tree_from_params(xparam)
+            new_tree = join_trees(unravel, tree, props)
+            is_constrained_tree = xparam._is_constrained_tree()
+            true_ps = params_from_tree(new_tree, param_names, is_constrained_tree)
+            true_ps.from_unconstrained(props)
+            key, subkey = jr.split(key)
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
         if plot_sims:
     
@@ -203,27 +234,18 @@ class ExperimentRunner:
 
         with util.io.Logger(os.path.join(exp_dir, 'out.log')) as logger:
 
-            if isinstance(inf_desc, ed.PRT_MCMC_Descriptor):
+            mcmc_runner = mcmc.BPF_MCMC(props, ssm)
 
-                mcmc_runner = mcmc.BPF_MCMC(props, ssm)
-
-                results = mcmc_runner.run(
-                    key,
-                    observations,
-                    num_prt = inf_desc.num_prt,
-                    num_posterior_samples=n_post_samples,
-                    mcmc_steps = inf_desc.mcmc_steps,
-                    num_iters = inf_desc.num_iters,
-                    logger=logger
-                    )
+            results = mcmc_runner.run(
+                key,
+                observations,
+                num_prt = inf_desc.num_prt,
+                num_posterior_samples=n_post_samples,
+                mcmc_steps = inf_desc.mcmc_steps,
+                num_iters = inf_desc.num_iters,
+                logger=logger
+                )
                 
-            else:
-
-                raise TypeError('unknown PRT_MCMC algorithm')
-            
-            tout = time.time()
-            logger.write('Total time: {0}'.format(tout - tin))
-
             util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
             util.io.save_txt(str(mcmc_runner.time), os.path.join(exp_dir, 'time.txt'))
@@ -233,9 +255,8 @@ class ExperimentRunner:
 
             del results
             mcmc_runner = None
-            jax.clear_backends()
+            jax.clear_caches()
             gc.collect()
-
 
     def _run_snl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed):
         """
@@ -250,7 +271,7 @@ class ExperimentRunner:
 
 
         if hasattr(sim_desc, 'dt_obs'):
-            
+        
             sim_setup = self.sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars, sim_desc.dt_obs)
 
         else:
@@ -263,8 +284,6 @@ class ExperimentRunner:
         is_target = sim_setup['exp_info']['is_target']
         param_names = sim_setup['exp_info']['param_names']
         is_constrained_tree = sim_setup['exp_info']['constrainers']
-        key, subkey = jr.split(key)
-        xparam = sample_prior(subkey, props)[0]
 
         if sample_gt:
 
@@ -276,15 +295,18 @@ class ExperimentRunner:
 
         else:
 
-            xparam = sample_prior(key, props)[0]
-            true_cps = self.sim.get_ground_truth()
+            key, subkey = jr.split(key)
+            xparam = sample_prior(subkey, props)[0]
+            true_cps = self.sim.get_ground_truth(sim_desc.state_dim, sim_desc.target_vars)
             unravel_fn = get_unravel_fn(xparam, props)
             unravel = unravel_fn(true_cps)
             tree = tree_from_params(xparam)
             new_tree = join_trees(unravel, tree, props)
             is_constrained_tree = xparam._is_constrained_tree()
             true_ps = params_from_tree(new_tree, param_names, is_constrained_tree)
-            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+            true_ps.from_unconstrained(props)
+            key, subkey = jr.split(key)
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
         if plot_sims:
 
@@ -340,7 +362,7 @@ class ExperimentRunner:
             del posterior_sample, posterior_cond_sample
             learner = None
             model = None
-            jax.clear_backends()
+            jax.clear_caches()
             gc.collect()
 
     def _run_tsnl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed):
@@ -366,10 +388,6 @@ class ExperimentRunner:
         props = sim_setup['props']
         inputs = sim_setup['inputs']
         param_names = sim_setup['exp_info']['param_names']
-        is_constrained_tree = sim_setup['exp_info']['constrainers']
-        key, subkey = jr.split(key)
-        xparam = sample_prior(subkey, props)[0]
-
         num_tiles=None
         subsample=False
 
@@ -388,14 +406,17 @@ class ExperimentRunner:
 
         else:
 
-            xparam = sample_prior(key, props)[0]
-            true_cps = self.sim.get_ground_truth()
+            key, subkey = jr.split(key)
+            xparam = sample_prior(subkey, props)[0]
+            true_cps = self.sim.get_ground_truth(sim_desc.state_dim, sim_desc.target_vars)
             unravel_fn = get_unravel_fn(xparam, props)
             unravel = unravel_fn(true_cps)
             tree = tree_from_params(xparam)
             new_tree = join_trees(unravel, tree, props)
             is_constrained_tree = xparam._is_constrained_tree()
             true_ps = params_from_tree(new_tree, param_names, is_constrained_tree)
+            true_ps.from_unconstrained(props)
+            key, subkey = jr.split(key)
             states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
 
         if plot_sims:
@@ -435,6 +456,7 @@ class ExperimentRunner:
                 subsample = subsample
             )
 
+
             key, subkey = jr.split(key)
             mll = marg_loglik(subkey, props, observations, model, 100, inf_desc.lag)
 
@@ -455,7 +477,7 @@ class ExperimentRunner:
             learner = None
             model = None
             gc.collect()
-            jax.clear_backends()
+            jax.clear_caches()
 
     def _create_model(self, n_inputs, n_cond, rng):
 
@@ -472,7 +494,7 @@ class ExperimentRunner:
                 nmade = model_desc.nmades,
                 dhidden=model_desc.dhidden,
                 nhidden=model_desc.nhidden,
-                act_fun=model_desc.act_fun,
+                act_fun=self._resolve_activation(model_desc.act_fun),
                 dcond = n_cond,
                 rngs = nnx.Rngs(rng),
                 random_order = model_desc.random_order,
@@ -484,3 +506,21 @@ class ExperimentRunner:
         else:
 
             raise TypeError('unknown model descriptor')
+
+    def _resolve_activation(self, act):
+
+        if isinstance(act, str):
+
+            if act == 'tanh':
+
+                return tanh_fn
+
+            elif act == 'relu':
+
+                return relu_fn
+
+            else:
+
+                raise ValueError(f"Unknown activation function string: {act}")
+
+        return act

@@ -57,14 +57,16 @@ def _param_dists(emission_dim, num_reactions):
     uniform_dist = tfd.Independent(uniform_base_dist, reinterpreted_batch_ndims=1)
 
     ## gaussian
-    log_rates = jnp.array([jnp.log(0.01), jnp.log(0.5), jnp.log(1), jnp.log(0.01)])
-    gaussian_dist = tfd.MultivariateNormalDiag(loc=log_rates, scale_diag=0.5*jnp.ones(num_reactions))
+    mean_log_rates = jnp.array([jnp.log(0.01), jnp.log(0.5), jnp.log(1), jnp.log(0.01)])
+    gaussian_dist = tfd.MultivariateNormalDiag(loc=mean_log_rates, scale_diag=0.5*jnp.ones(num_reactions))
+
+    ## oscillating
     osc_dist = OscPrior(uniform_low=[-5.0]*num_reactions, 
                               uniform_high=[2.0]*num_reactions, 
-                              gaussian_loc=log_rates, 
-                              gaussian_scale=[0.5]*4)
+                              gaussian_loc=mean_log_rates, 
+                              gaussian_scale=[0.5**2]*4)
     
-    log_rates_dist = gaussian_dist
+    log_rates_dist = osc_dist
 
     # Emissions
     l = emission_dim * (emission_dim + 1) // 2
