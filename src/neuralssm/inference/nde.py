@@ -24,7 +24,7 @@ class SequentialNeuralLikelihood:
         self.lag = lag
         self.xparam = None
 
-    def train_model(self, model, optimizer, loaders, num_epochs):
+    def train_model(self, model, optimizer, loaders, num_epochs, logger=None):
         
         train_loader, val_loader = loaders
         train_losses = []
@@ -56,10 +56,9 @@ class SequentialNeuralLikelihood:
             train_losses.append(train_loss)
             val_losses.append(val_loss)
 
-        print(f"--------Epoch {epoch}, training loss: {train_loss}, \n\t\t validation loss: {val_loss}")
+        logger.write(f"-------- training loss: {train_loss}, \n\t\t validation loss: {val_loss} \n")
 
-        return model
-
+        return model, (train_loss, val_loss)
 
     def learn_likelihood(
                         self,
@@ -75,7 +74,7 @@ class SequentialNeuralLikelihood:
                         batch_size: int = 128,
                         num_epochs: int = 20,
                         learning_rate: float = 1 * 1e-4,
-                        rw_sigma=0.5,
+                        rw_sigma=1.0,
                         logger = None,
                         num_tiles=None,
                         subsample=False,
@@ -161,8 +160,18 @@ class SequentialNeuralLikelihood:
 
             logger.write('---------training model\n')
 
-            optimizer = nnx.Optimizer(model, optax.adamw(learning_rate, weight_decay=1e-6)) 
-            model = self.train_model(model, optimizer, loaders, num_epochs)            
+            optimizer = nnx.Optimizer(model, optax.adamw(learning_rate, weight_decay=1e-4)) 
+            model, losses = self.train_model(model, optimizer, loaders, num_epochs, logger)            
+            train_loss, val_loss = losses
+
+            if jnp.isnan(train_loss) or jnp.isnan(val_loss):
+                
+                assert False, "Forced assertion failure : NaN loss"
+
+            if train_loss > 1e5 or val_loss > 1e5:
+
+                assert False, "Forced assertion failure : Loss too large"
+
             logger.write('---------sampling new parameters\n')
 
             # Sample new parameters using trained likelihood and MCMC
@@ -176,7 +185,6 @@ class SequentialNeuralLikelihood:
             logger.write('---------time: {:.2f}\n'.format(tout-tin))
 
             gc.collect()
-            jax.clear_backends()
 
         self.all_dists = all_dists
         self.all_emissions = all_emissions

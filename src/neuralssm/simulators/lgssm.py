@@ -4,10 +4,10 @@ import jax # type: ignore
 from jax import numpy as jnp # type: ignore
 import os
 from simulators.ssm import LGSSM
-from dynamax.utils.bijectors import RealToPSDBijector # type: ignore
 from simulators.lgssm_params import _init_vals, _param_dists
 from util.misc import get_prior_fields, get_bool_tree
 from util.param import initialize
+from util.bijectors import PSDToRealBijector, RealToPSDBijector, RealVecToStableMat # type: ignore
 import util.io
 
 
@@ -19,7 +19,7 @@ def setup(state_dim, emission_dim, input_dim, target_vars):
                 ['weights', 'bias', 'input_weights', 'cov']]
     
     constrainers  = [[None, RealToPSDBijector],
-                    [None, None, None, RealToPSDBijector],
+                    [RealVecToStableMat(state_dim), None, None, RealToPSDBijector],
                     [None, None, None, RealToPSDBijector]]
     
     init_vals = _init_vals(state_dim, emission_dim, input_dim)
@@ -53,15 +53,23 @@ def get_root():
     return 'data/simulators/lgssm'
 
 
-def get_ground_truth():
+def get_ground_truth(state_dim, target_vars=None):
     """
     Returns ground truth parameters and corresponding observed statistics.
     """
+    true_cps_dict = {}
+    true_cps_dict['d1'] = (0.05268028 * jnp.eye(state_dim)).reshape((state_dim ** 2, ))
+    true_cps_dict['d4'] = PSDToRealBijector()(0.1 * jnp.eye(state_dim))
+    
+    true_cps = []
 
-    true_ps = jnp.log([0.01, 0.5, 1.0, 0.01])
-    obs_xs = util.io.load(os.path.join(get_root(), 'obs_stats'))
+    for vars in target_vars:
 
-    return true_ps, obs_xs
+        true_cps.append(true_cps_dict[vars]) 
+
+    true_cps = jnp.concatenate(true_cps, axis=0)
+
+    return true_cps
 
 
 def get_disp_lims():

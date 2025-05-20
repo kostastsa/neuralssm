@@ -20,13 +20,16 @@ class MADEnet(nnx.Module):
                  reverse: bool=False, 
                  batch_norm: bool=False,
                  dropout: bool=False):
-        try: 
 
-            act_fun = activations[act_fun]
+        if isinstance(act_fun, str):
 
-        except:
+            try: 
 
-            raise ValueError(f"Activation function {act_fun} not found in nnx module")
+                act_fun = activations[act_fun]
+
+            except:
+
+                raise ValueError(f"Activation function {act_fun} not found in nnx module")
 
         dout = 2 * din
         self.din, self.dhidden, self.nhidden = din, dhidden, nhidden
@@ -54,8 +57,11 @@ class MADEnet(nnx.Module):
         self.layers.append(MaskedLinear(out_mask, dhidden, dout, rngs=rngs))
 
     def __call__(self, x: jax.Array):
+
         for layer in self.layers:
+
             x = layer(x)
+
         return x.reshape(-1, 2, self.din)
 
 
@@ -72,6 +78,7 @@ class MADE(nnx.Module):
                  reverse:bool =False,
                  batch_norm: bool=False,
                  dropout: bool=False):
+
         self.network = MADEnet(din, dhidden, nhidden, act_fun, dcond, rngs, random, reverse, batch_norm, dropout)
         self.din = din
         self.dcond = dcond
@@ -90,6 +97,7 @@ class MADE(nnx.Module):
         alphas = alphas[:, jnp.argsort(self.input_order)]
         xin = x[:, self.dcond:]
         us = jnp.exp(-alphas) * (xin[:, jnp.argsort(self.input_order)] - mus)
+
         return jnp.concatenate([x[:, :self.dcond], us], axis=1), jnp.sum(-alphas, axis=1)
 
     def backward(self, u):
@@ -100,9 +108,12 @@ class MADE(nnx.Module):
         '''
         assert len(u.shape) == 2
         assert u.shape[1] == self.din + self.dcond
+
         x = jnp.zeros(jnp.shape(u))
         x = x.at[:, :self.dcond].set(u[:, :self.dcond])
+
         for i in range(1, self.din + 1):
+
             idx = jnp.argwhere(self.input_order == i)[0, 0]
             params = self.network(x)    
             mus = params[:, 0]
@@ -110,13 +121,17 @@ class MADE(nnx.Module):
             alphas = jnp.clip(alphas, a_max=10)
             new_x = mus[:, idx] + jnp.exp(alphas[:, idx]) * u[:, self.dcond+i-1]
             x = x.at[:, self.dcond+idx].set(new_x)
+
         return x, None
   
     def generate(self, key, num_samples, cond_samples=None):
+
         u = jr.normal(key, (num_samples, self.din))
+
         if cond_samples is not None:
             u = jnp.concatenate([cond_samples, u], axis=1)
         samples, _ = self.backward(u)
+
         return samples
     
     def loss_fn(self, x):

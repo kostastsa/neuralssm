@@ -4,7 +4,7 @@ import jax # type: ignore
 from jax import numpy as jnp # type: ignore
 import os
 from simulators.ssm import SPN
-from dynamax.utils.bijectors import RealToPSDBijector # type: ignore
+from util.bijectors import RealToPSDBijector # type: ignore
 import tensorflow_probability.substrates.jax.bijectors as tfb
 import tensorflow_probability.substrates.jax.distributions as tfd # type: ignore
 from util.misc import get_prior_fields, get_bool_tree
@@ -13,6 +13,7 @@ from simulators.lvssm_params import _init_vals, _param_dists
 import util.io
 
 def emission_dist(params, state):
+
     return tfd.MultivariateNormalFullCovariance(loc=state[1], covariance_matrix=params.emissions.cov.value)
 
 def setup(state_dim, emission_dim, input_dim, target_vars, dt_obs=0.1):
@@ -61,7 +62,7 @@ def get_root():
     return 'data/simulators/lgssm'
 
 
-def get_ground_truth():
+def get_ground_truth(state_dim, target_vars=None):
     """
     Returns ground truth parameters and corresponding observed statistics.
     """

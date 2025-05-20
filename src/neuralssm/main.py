@@ -23,6 +23,8 @@ import jax.random as jr
 import misc
 
 import util.numerics
+from util.numerics import compute_all_errors
+from util.misc import print_table
 from util.sample import sim_emissions, generate_emissions
 from util.train import find_mle, loglik_fn
 from inference.diagnostics.two_sample import sq_maximum_mean_discrepancy as mmd
@@ -42,10 +44,32 @@ def parse_args():
 
     def int_or_str(value):
         """Try converting to int, otherwise return as string."""
+
         try:
+
             return int(value)
+
         except ValueError:
+
             return value
+        
+    def str2bool(v):
+
+        if isinstance(v, bool):
+
+            return v
+
+        if v.lower() in ('yes', 'true', 't', '1'):
+
+            return True
+
+        elif v.lower() in ('no', 'false', 'f', '0'):
+
+            return False
+
+        else:
+
+            raise argparse.ArgumentTypeError('Boolean value expected.')
 
     parser = argparse.ArgumentParser(description='Likelihood-free inference experiments.')
     subparsers = parser.add_subparsers()
@@ -56,6 +80,7 @@ def parse_args():
     parser_run.set_defaults(func=run_experiment)
 
     parser_trials = subparsers.add_parser('trials', help='run multiple experiment trials')
+    parser_trials.add_argument('sample_gt', type=str2bool, help="A boolean flag (default: True)")
     parser_trials.add_argument('seed', type=int_or_str, help='seed for PRNG')
     parser_trials.add_argument('start', type=int, help='# of first trial')
     parser_trials.add_argument('end', type=int, help='# of last trial')
@@ -70,6 +95,7 @@ def parse_args():
     parser_view.set_defaults(func=view_results)
 
     parser_ensemble = subparsers.add_parser('ensemble', help='view ensemble results')
+    parser_ensemble.add_argument('sample_gt', type=str2bool, help="A boolean flag (default: True)")
     parser_ensemble.add_argument('start', type=int, help='# of first trial')
     parser_ensemble.add_argument('end', type=int, help='# of last trial')
     parser_ensemble.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
@@ -83,6 +109,7 @@ def parse_args():
     parser_grouped.set_defaults(func=view_grouped)
 
     parser_errors = subparsers.add_parser('errors', help='plot error by variable and inference method')
+    parser_errors.add_argument('sample_gt', type=str2bool, help="A boolean flag (default: True)")
     parser_errors.add_argument('start', type=int, help='# of first trial')
     parser_errors.add_argument('end', type=int, help='# of last trial')
     parser_errors.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
@@ -115,6 +142,13 @@ def parse_args():
     parser_plot_dist.add_argument('end', type=int, help='# of last trial')
     parser_plot_dist.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
     parser_plot_dist.set_defaults(func=plot_dist)
+
+    parser_status = subparsers.add_parser('status', help='completion status of experiments in file')
+    parser_status.add_argument('sample_gt', type=str2bool, help="A boolean flag (default: True)")
+    parser_status.add_argument('start', type=int, help='# of first trial')
+    parser_status.add_argument('end', type=int, help='# of last trial')
+    parser_status.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
+    parser_status.set_defaults(func=completion_status)
 
     parser_log = subparsers.add_parser('log', help='print experiment logs')
     parser_log.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
@@ -151,16 +185,13 @@ def run_trials(args):
     """
 
     if args.start < 1:
+
         raise ValueError('trial # must be a positive integer')
 
     if args.end < args.start:
+
         raise ValueError('end trial can''t be less than start trial')
 
-    for file in args.files:
-
-        file_path = os.getcwd() + '/' + file
-        subprocess.run(["open", file_path])
-    
     exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
     seed = int(time.time() * 1000) if args.seed=='r' else args.seed  
     key = jr.PRNGKey(seed)
@@ -170,12 +201,12 @@ def run_trials(args):
         for trial in range(args.start, args.end + 1):
 
             exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
-            trial_dir = os.path.join(exp_dir, str(trial))
+            trial_dir = os.path.join(exp_dir, f'sample_gt_{args.sample_gt}', str(trial))
 
             if os.path.exists(trial_dir + '/exp_desc.txt') | os.path.exists(trial_dir + '/info.txt'):
 
                 print('EXPERIMENT ALREADY EXISTS')
-                jax.clear_backends()
+                jax.clear_caches()
                 gc.collect()
                 
                 continue
@@ -195,20 +226,20 @@ def run_trials(args):
                     os.rmdir(trial_dir)
 
                 key, subkey = jr.split(key)
-                out = runner.run(trial=trial, sample_gt=True, plot_sims=False, key=subkey, seed=seed)
+                runner.run(trial=trial, sample_gt=args.sample_gt, plot_sims=True, key=subkey, seed=seed)
 
             except misc.AlreadyExistingExperiment:
 
                 print('RUNNER FAILED')
 
-            out = None
-            jax.clear_backends()
+            jax.clear_caches()
             gc.collect()
 
     print('ALL DONE')
 
 
 def view_results(args):
+
     """
     Views experiments.
     """
@@ -237,6 +268,7 @@ def view_results(args):
 
 
 def view_ensemble(args, show=False):
+
     """
     Takes a set of experiments and line-plots the errors vs num_sims of each algorithm together.
     """
@@ -260,6 +292,7 @@ def view_ensemble(args, show=False):
         pmerr_array = []
         rmse_array = []
         mmd_array = []
+        num_sims_array = []
 
         get_mmd = False
 
@@ -272,8 +305,9 @@ def view_ensemble(args, show=False):
             try:
 
                 print('ON TRIAL:', trial)
+
                 exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
-                exp_dir += '/' + str(trial)
+                exp_dir = os.path.join(exp_dir, f'sample_gt_{args.sample_gt}', str(trial))
 
                 try:
 
@@ -287,11 +321,13 @@ def view_ensemble(args, show=False):
                     minerr = util.io.load(os.path.join(exp_dir, 'min_error'))
                     pmerr = util.io.load(os.path.join(exp_dir, 'post_mean_error'))
                     rmserr = util.io.load(os.path.join(exp_dir, 'rmse')) 
+                    amd, apd, amxd, mxd = util.io.load(os.path.join(exp_dir, 'sample_dists'))
 
                     kderr_array.append(kderr)
                     minerr_array.append(minerr)
                     pmerr_array.append(pmerr)
                     rmse_array.append(rmserr)
+                    num_sims_array.append(num_sims)
 
                     if get_mmd:
 
@@ -305,9 +341,17 @@ def view_ensemble(args, show=False):
                 print('TRIAL DOES NOT EXIST')
 
         kderr_array = jnp.array(kderr_array)
+        kderr_array = kderr_array[~(jnp.isnan(kderr_array) + jnp.isinf(kderr_array))]
+
         minerr_array = jnp.array(minerr_array)
+        minerr_array = minerr_array[~(jnp.isnan(minerr_array) + jnp.isinf(minerr_array))]
+
         pmerr_array = jnp.array(pmerr_array)
+        pmerr_array = pmerr_array[~(jnp.isnan(pmerr_array) + jnp.isinf(pmerr_array))]
+
         rmse_array = jnp.array(rmse_array)
+        rmse_array = rmse_array[~(jnp.isnan(rmse_array) + jnp.isinf(rmse_array))]
+
 
         key, subkey = jr.split(key)
         kderr, _ = util.numerics.bootstrap(subkey, kderr_array, 100)
@@ -330,31 +374,33 @@ def view_ensemble(args, show=False):
         std_rmse = jnp.std(rmserr)
 
         mmd_array = jnp.array(mmd_array)
-        nans_infs = jnp.isnan(mmd_array) + jnp.isinf(mmd_array)
-        mmd_array = mmd_array[~nans_infs]
+        mmd_array = mmd_array[~(jnp.isnan(mmd_array) + jnp.isinf(mmd_array))]
         bootstrap_mmd, _ = util.numerics.bootstrap(subkey, mmd_array, 100)
         mean_mmd = jnp.mean(bootstrap_mmd)
         std_mmd = jnp.std(bootstrap_mmd)
 
+        num_sims_array = jnp.array(num_sims_array)
+        num_sims_array = num_sims_array[~(jnp.isnan(num_sims_array) + jnp.isinf(num_sims_array))]
+        mean_num_sims = jnp.mean(num_sims_array)
 
         if isinstance(exp_desc.inf, ed.ABC_Descriptor):
-            abc.results.append([num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
+            abc.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
         
         elif isinstance(exp_desc.inf, ed.BPF_MCMC_Descriptor):
-            mcmc.results.append([num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
+            mcmc.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
 
         elif isinstance(exp_desc.inf, ed.SNL_Descriptor):
-            snl.results.append([num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
+            snl.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
 
         elif isinstance(exp_desc.inf, ed.TSNL_Descriptor):
-            tsnl.results.append([num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
+            tsnl.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
 
     abc.make_jnp()
     mcmc.make_jnp()
     snl.make_jnp()
     tsnl.make_jnp()
 
-    fig, ax = plt.subplots(4 + int(get_mmd), 1, figsize=(5, 5))
+    fig, ax = plt.subplots(4, 1, figsize=(5, 5))
 
     for alg in [abc, mcmc, snl, tsnl]:
 
@@ -362,47 +408,26 @@ def view_ensemble(args, show=False):
 
             ax[0].plot(alg.results[:, 0], alg.results[:, 1], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
             ax[0].fill_between(alg.results[:, 0], alg.results[:,1]-alg.results[:, 2], alg.results[:, 1] + alg.results[:, 2], color=alg.color, alpha=0.05)
-            ax[0].set_ylabel('$\mathcal{E}_{KDE}$')
+            ax[0].set_ylabel(r'$\mathcal{E}_{KDE}$')
             ax[0].legend(prop={'size': 5})
 
             ax[1].plot(alg.results[:, 0], alg.results[:, 3], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
             ax[1].fill_between(alg.results[:, 0], alg.results[:, 3]-alg.results[:, 4], alg.results[:, 3] + alg.results[:, 4], color=alg.color, alpha=0.05)
             ax[1].set_xlabel('log Number of simulations')
-            ax[1].set_ylabel('$\mathcal{E}_{min}$')
+            ax[1].set_ylabel(r'$\mathcal{E}_{min}$')
             ax[1].legend(prop={'size': 5})
 
             ax[2].plot(alg.results[:, 0], alg.results[:, 5], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
             ax[2].fill_between(alg.results[:, 0], alg.results[:, 5]-alg.results[:, 6], alg.results[:, 5] + alg.results[:, 6], color=alg.color, alpha=0.05)
             ax[2].set_xlabel('log Number of simulations')
-            ax[2].set_ylabel('$\mathcal{E}_{PM}$')
+            ax[2].set_ylabel(r'$\mathcal{E}_{B}$')
             ax[2].legend(prop={'size': 5})
 
             ax[3].plot(alg.results[:, 0], alg.results[:, 7], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
             ax[3].fill_between(alg.results[:, 0], alg.results[:, 7]-alg.results[:, 8], alg.results[:, 7] + alg.results[:, 8], color=alg.color, alpha=0.05)
             ax[3].set_xlabel('log Number of simulations')
-            ax[3].set_ylabel('$\mathcal{E}_{RMSE}$')
+            ax[3].set_ylabel(r'$\mathcal{E}_{RMSE}$')
             ax[3].legend(prop={'size': 5})
-
-            # if isinstance(alg, er.SNL_Results) or isinstance(alg, er.TSNL_Results):
-
-            #     print(f'{alg.name}')
-            #     print(alg.results[:, 5])
-
-            #     ax[2].plot(alg.results[:, 0], alg.results[:, 5], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
-            #     ax[2].fill_between(alg.results[:, 0], alg.results[:, 5]-alg.results[:, 6], alg.results[:, 5] + alg.results[:, 6], color=alg.color, alpha=0.05)
-
-            #     if variable_names[0] == 'state_dim':
-
-            #         ax[2].set_xlabel('dim')
-
-            #     else:
-
-            #         ax[2].set_xlabel('log Number of simulations')
-
-            #     ax[2].set_ylabel('$\mathcal{E}_{MMD}$')
-            #     ax[2].legend(prop={'size': 5})
-
-            # ax[1 + int(get_mmd)].set_xlabel('log Number of simulations')
 
         except IndexError:
 
@@ -412,7 +437,7 @@ def view_ensemble(args, show=False):
             
             print(f'{alg.name} has no results')
 
-    fig.savefig(os.path.join(fig_dir, f'{exp_desc.sim.name}_dim_{state_dim}_scan_num_sims_' + '_'.join(exp_desc.sim.target_vars) + '.pdf'), format="pdf", dpi=800)
+    fig.savefig(os.path.join(fig_dir, f'{exp_desc.sim.name}_dim_{state_dim}_scan_num_sims_' + '_'.join(exp_desc.sim.target_vars) + f'_{args.sample_gt}' + '.pdf'), format="pdf", dpi=800)
 
     if show:
 
@@ -588,7 +613,8 @@ def eval_and_plot_errors(args, show=False):
             try:
 
                 exp_root = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
-                exp_dir = exp_root + '/' + str(trial)
+                exp_root = os.path.join(exp_root, f'sample_gt_{args.sample_gt}')
+                exp_dir = os.path.join(exp_root, str(trial))
 
                 try:
 
@@ -596,45 +622,33 @@ def eval_and_plot_errors(args, show=False):
 
                     if isinstance(inf_desc, ed.ABC_Descriptor):
 
-                        results = util.io.load(os.path.join(exp_dir, 'results'))
-                        samples, weights, counts = results
-                        kderr = kde_error(samples, true_cps)
-                        minerr = min_error(samples, true_cps)
-                        pmerr = post_mean_error(samples, true_cps)
-                        rmserr = rmse(samples, true_cps)
+                        cps, _, counts = util.io.load(os.path.join(exp_dir, 'results'))
+                        kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd = compute_all_errors(cps, true_cps)
                         num_simulations = counts * sim_desc.num_timesteps
 
                     elif isinstance(inf_desc, ed.BPF_MCMC_Descriptor):
 
-                        mcmc_samples, _ = util.io.load(os.path.join(exp_dir, 'results'))
-                        kderr = kde_error(mcmc_samples, true_cps)
-                        minerr = min_error(mcmc_samples, true_cps)
-                        pmerr = post_mean_error(mcmc_samples, true_cps)
-                        rmserr = rmse(mcmc_samples, true_cps)
+                        cps, _ = util.io.load(os.path.join(exp_dir, 'results'))
+                        kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd = compute_all_errors(cps, true_cps)
                         num_simulations = inf_desc.num_prt * sim_desc.num_timesteps * inf_desc.mcmc_steps * inf_desc.num_iters
 
                     elif isinstance(inf_desc, ed.SNL_Descriptor):
 
-                        _, posterior_cond_sample = util.io.load(os.path.join(exp_dir, 'posterior'))
-                        kderr = kde_error(posterior_cond_sample, true_cps)
-                        minerr = min_error(posterior_cond_sample, true_cps)
-                        pmerr = post_mean_error(posterior_cond_sample, true_cps)
-                        rmserr = rmse(posterior_cond_sample, true_cps)
+                        _, cps = util.io.load(os.path.join(exp_dir, 'posterior'))
+                        kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd = compute_all_errors(cps, true_cps)
                         num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
                             
                     elif isinstance(inf_desc, ed.TSNL_Descriptor):
 
-                        _, posterior_cond_sample = util.io.load(os.path.join(exp_dir, 'posterior'))
-                        kderr = kde_error(posterior_cond_sample, true_cps)
-                        minerr = min_error(posterior_cond_sample, true_cps)
-                        pmerr = post_mean_error(posterior_cond_sample, true_cps)
-                        rmserr = rmse(posterior_cond_sample, true_cps)
+                        _, cps = util.io.load(os.path.join(exp_dir, 'posterior'))
+                        kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd = compute_all_errors(cps, true_cps)
                         num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
 
                     util.io.save(kderr, os.path.join(exp_dir, 'kde_error'))
                     util.io.save(minerr, os.path.join(exp_dir, 'min_error'))
                     util.io.save(pmerr, os.path.join(exp_dir, 'post_mean_error'))
                     util.io.save(rmserr, os.path.join(exp_dir, 'rmse'))
+                    util.io.save((amd, apd, amxd, mxd), os.path.join(exp_dir, 'sample_dists'))
                     util.io.save(jnp.log(num_simulations), os.path.join(exp_dir, 'num_sims'))
 
                     kderr_trials.append(kderr)
@@ -666,6 +680,16 @@ def eval_and_plot_errors(args, show=False):
             minerr_trials = jnp.array(minerr_trials)
             pmerr_trials = jnp.array(pmerr_trials)
             rmse_trials = jnp.array(rmse_trials)
+
+            #remove NaNs 
+            nans_infs = jnp.isnan(kderr_trials) + jnp.isinf(kderr_trials)
+            kderr_trials = kderr_trials[~nans_infs]
+            nans_infs = jnp.isnan(minerr_trials) + jnp.isinf(minerr_trials)
+            minerr_trials = minerr_trials[~nans_infs]
+            nans_infs = jnp.isnan(pmerr_trials) + jnp.isinf(pmerr_trials)
+            pmerr_trials = pmerr_trials[~nans_infs]
+            nans_infs = jnp.isnan(rmse_trials) + jnp.isinf(rmse_trials)
+            rmse_trials = rmse_trials[~nans_infs]
 
             key, subkey = jr.split(key)
             kderr, _ = util.numerics.bootstrap(subkey, kderr_trials, 100)
@@ -737,6 +761,7 @@ def eval_and_plot_errors(args, show=False):
             ax.set_ylabel('Error')
             ax.set_title(f'{label} - Errors vs Trial')
             ax.legend(prop={'size': 5})
+
             fig.savefig(os.path.join(f'{exp_root}', f'Errors vs Trials.png'))
 
         except FileNotFoundError:
@@ -1213,6 +1238,57 @@ def print_log(args):
 
         except misc.NonExistentExperiment:
             print('EXPERIMENT DOES NOT EXIST')
+
+
+def completion_status(args):
+
+    """
+    Takes a set of experiments and line-plots the errors vs num_sims of each algorithm together.
+    """
+
+    exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
+
+    abc = er.ABC_Results()
+    mcmc = er.MCMC_Results()
+    snl = er.SNL_Results()
+    tsnl = er.TSNL_Results()
+    
+    for exp_desc in exp_descs:
+
+        count_trials = 0
+
+        for trial in range(args.start, args.end + 1):
+
+            exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
+            exp_dir = os.path.join(exp_dir, f'sample_gt_{args.sample_gt}', str(trial))
+
+
+            if os.path.exists(exp_dir):
+
+                has_results = os.path.exists(os.path.join(exp_dir, 'results.pkl'))
+                has_posterior = os.path.exists(os.path.join(exp_dir, 'posterior.pkl'))
+
+                if has_results or has_posterior:
+
+                    count_trials += 1
+
+        if isinstance(exp_desc.inf, ed.ABC_Descriptor):
+            abc.results.append(f'{count_trials} / {args.end}')
+        
+        elif isinstance(exp_desc.inf, ed.BPF_MCMC_Descriptor):
+            mcmc.results.append(f'{count_trials} / {args.end}')
+
+        elif isinstance(exp_desc.inf, ed.SNL_Descriptor):
+            snl.results.append(f'{count_trials} / {args.end}')
+
+        elif isinstance(exp_desc.inf, ed.TSNL_Descriptor):
+            tsnl.results.append(f'{count_trials} / {args.end}')
+
+
+    print('ABC', abc.results, '\n',
+          'MCMC', mcmc.results, '\n',
+          'SNL', snl.results, '\n',
+          'T_SNL', tsnl.results)
 
 
 def main():

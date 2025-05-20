@@ -21,10 +21,9 @@ def create_descs(
     sim = ed.SimulatorDescriptor().get_descriptor(ssm)
     inf = ed.InferenceDescriptor().get_descriptor(alg)
 
-    scan_dims = [1, 2, 3, 4, 5, 6 ,7, 8, 9, 10]
     scan_abc = [10, 50, 100, 1000]
     scan_mcmc = [100, 200, 500, 1000]
-    scan_snl = [50, 100, 500, 1000]
+    scan_snl = [50, 100, 250, 500]
     scan_tsnl = [1, 10, 100, 500]
 
         
@@ -33,7 +32,7 @@ def create_descs(
         scan_init = scan_abc[0]
         scan_fin  = scan_abc[-1]
 
-        q_max = 0.7
+        q_max = 0.8
         sigma = 1.0
 
         for val in scan_abc:
@@ -53,7 +52,7 @@ def create_descs(
         for val in scan_mcmc:
 
             num_prt = val
-            mcmc_steps = 10000
+            mcmc_steps = 1000
             num_iters = 1
             sim_desc = sim.create_desc(state_dim, emission_dim, num_timesteps, dt_obs, target_vars)
             inf_desc = inf.create_desc(num_prt, num_iters, mcmc_steps)
@@ -63,7 +62,7 @@ def create_descs(
 
     elif alg == 'snl':
 
-        model_args = (5, 32, 5, 'relu', False, True, False, False, 20, 1e-4)
+        model_args = (5, 32, 5, 'tanh', False, True, False, False, 20, 1e-4)
         mcmc_steps = 1000
         n_rounds = 5
         mcmc_steps = 1000
@@ -75,10 +74,10 @@ def create_descs(
         for val in scan_snl:
             
             mcmc_steps = 1000
-            train_on = 'best'
+            train_on = 'all'
             n_samples = val
 
-            if n_samples <= 100:
+            if n_samples < 100:
 
                 train_on = 'all'
 
@@ -94,11 +93,10 @@ def create_descs(
 
     elif alg == 'tsnl':
 
-        lag = 10
+        lag = 5
         model_args = (5, 32, 5, 'relu', False, True, False, False, 20, 1e-4)
         mcmc_steps = 1000
         n_rounds = 5
-        train_on = 'best'
         mcmc_steps = 1000
         subsample = 1.0
 
@@ -127,8 +125,8 @@ if __name__ == '__main__':
 
     exp_root = '/Users/kostastsampourakis/Desktop/code/Python/projects/neuralssm/src/neuralssm/exps'
 
-    target_vars = 'd4'
-    ssm = 'lgssm'
+    target_vars = 'e2'
+    ssm = 'svssm'
     scan = 'num_sims'
 
     state_dim = 2
@@ -139,9 +137,9 @@ if __name__ == '__main__':
         exp_descs, (scan_init, scan_fin) = create_descs(
             ssm = ssm,
             alg = alg,
-            target_vars = 'd4',
+            target_vars = target_vars,
             num_timesteps = 100,
-            dt_obs = None,
+            dt_obs = 0.1,
             state_dim = state_dim,
             emission_dim = emission_dim
             )

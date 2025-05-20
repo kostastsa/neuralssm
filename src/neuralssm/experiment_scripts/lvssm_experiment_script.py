@@ -4,7 +4,7 @@ from jax import random as jr # type: ignore
 import blackjax # type: ignore
 import jax.scipy.stats as jss # type: ignore
 from jax.scipy.special import logsumexp as lse # type: ignore
-from dynamax.utils.bijectors import RealToPSDBijector # type: ignore
+from util.bijectors import RealToPSDBijector # type: ignore
 import numpy as onp # type: ignore
 
 from density_models import MAF

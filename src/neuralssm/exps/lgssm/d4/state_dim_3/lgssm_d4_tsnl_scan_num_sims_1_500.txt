@@ -26,7 +26,7 @@ experiment
 		n_rounds: 5,
 		lag: 15,
 		subsample: 1.0,
-		train_on: best,
+		train_on: all,
 		mcmc_steps: 1000
 	}
 }
@@ -58,7 +58,7 @@ experiment
 		n_rounds: 5,
 		lag: 15,
 		subsample: 1.0,
-		train_on: best,
+		train_on: all,
 		mcmc_steps: 1000
 	}
 }

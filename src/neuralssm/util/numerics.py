@@ -21,7 +21,7 @@ def min_error(particles, true_cps, sigma=1.0):
     dps = particles - true_cps
     ns = jnp.linalg.norm(dps, axis=1)
     
-    return (1/jnp.sqrt(2)/sigma**2) * jnp.min(ns)
+    return jnp.min(ns)
 
 
 def post_mean_error(particles, true_cps):
@@ -184,3 +184,54 @@ def find_quantile(prev_sample, new_sample, sigma=1.0):
     q = 1 / c
 
     return q
+
+
+def average_min_distance(particles):
+
+    particles = jnp.unique(particles, axis=0)
+    ds = vmap(lambda y: vmap(lambda x: jnp.linalg.norm(x-y))(particles))(particles)
+    mod_ds = ds + jnp.diag(jnp.full((ds.shape[0],), jnp.inf))
+    min_ds = jnp.min(mod_ds, axis=1)
+    avg_min_distance = jnp.mean(min_ds)
+
+    return avg_min_distance
+
+def average_pair_distance(particles):
+
+    particles = jnp.unique(particles, axis=0)
+    ds = vmap(lambda y: vmap(lambda x: jnp.linalg.norm(x-y))(particles))(particles)
+    mod_ds = jnp.triu(ds)[jnp.triu(ds)>0]
+    mod_ds = mod_ds.flatten()
+
+    return jnp.mean(mod_ds)
+
+def average_max_distance(particles):
+
+    particles = jnp.unique(particles, axis=0)
+    ds = vmap(lambda y: vmap(lambda x: jnp.linalg.norm(x-y))(particles))(particles)
+    max_ds = jnp.max(ds, axis=1)
+
+    return jnp.mean(max_ds)
+
+def max_distance(particles):
+
+    particles = jnp.unique(particles, axis=0)
+    ds = vmap(lambda y: vmap(lambda x: jnp.linalg.norm(x-y))(particles))(particles)
+
+    return jnp.max(ds)
+
+
+def compute_all_errors(cps, true_cps):
+
+    kderr = kde_error(cps, true_cps)
+    minerr = min_error(cps, true_cps)
+    pmerr = post_mean_error(cps, true_cps)
+    rmserr = rmse(cps, true_cps)
+    
+    amd = average_min_distance(cps)
+    apd = average_pair_distance(cps)
+    amxd = average_max_distance(cps)
+    mxd = max_distance(cps)
+
+    return kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd
+

@@ -1,0 +1,80 @@
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 300,
+		dt_obs: 0.01,
+		target_vars: d3
+	},
+	inf: smc_abc
+	{
+		n_samples: 10,
+		qmax: 0.7,
+		sigma: 2.0
+	}
+}
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 300,
+		dt_obs: 0.01,
+		target_vars: d3
+	},
+	inf: smc_abc
+	{
+		n_samples: 50,
+		qmax: 0.7,
+		sigma: 2.0
+	}
+}
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 300,
+		dt_obs: 0.01,
+		target_vars: d3
+	},
+	inf: smc_abc
+	{
+		n_samples: 100,
+		qmax: 0.7,
+		sigma: 2.0
+	}
+}
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 300,
+		dt_obs: 0.01,
+		target_vars: d3
+	},
+	inf: smc_abc
+	{
+		n_samples: 200,
+		qmax: 0.7,
+		sigma: 2.0
+	}
+}
+experiment
+{
+	sim: lvssm
+	{
+		emission_dim: 1,
+		num_timesteps: 300,
+		dt_obs: 0.01,
+		target_vars: d3
+	},
+	inf: smc_abc
+	{
+		n_samples: 500,
+		qmax: 0.7,
+		sigma: 2.0
+	}
+}

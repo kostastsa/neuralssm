@@ -11,10 +11,10 @@ class ExperimentResults:
         self.results = jnp.array(self.results)
 
 
-
 class ABC_Results(ExperimentResults):
 
     def __init__(self):
+
         super().__init__()
         self.name = 'SMC-ABC'
         self.marker = 'o'
@@ -24,6 +24,7 @@ class ABC_Results(ExperimentResults):
 class MCMC_Results(ExperimentResults):
 
     def __init__(self):
+
         super().__init__()
         self.name = 'BPF-MCMC'
         self.marker = 'x'
@@ -33,6 +34,7 @@ class MCMC_Results(ExperimentResults):
 class SNL_Results(ExperimentResults):
 
     def __init__(self):
+
         super().__init__()
         self.name = 'SNL'
         self.marker = 's'
@@ -42,6 +44,7 @@ class SNL_Results(ExperimentResults):
 class TSNL_Results(ExperimentResults):
 
     def __init__(self):
+
         super().__init__()
         self.name = 'T-SNL'
         self.marker = 'd'

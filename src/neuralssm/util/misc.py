@@ -92,6 +92,7 @@ def swap_axes_on_values(outputs, axis1=0, axis2=1):
 
 def get_exp_dir(inf,
             sim,
+            sample_gt,
             state_dim,
             emission_dim,
             num_timesteps,
@@ -140,6 +141,7 @@ def get_exp_dir(inf,
         sim_dir = data_root + f'{sim}/emission-dim_{emission_dim}_num-timesteps_{num_timesteps}_dt_obs_{dt_obs}_target-vars_{vars}/'
 
     exp_dir = sim_dir + inf_dir
+    exp_dir = os.path.join(exp_dir, f'sample_gt_{sample_gt}')
 
     return exp_dir
 
@@ -147,7 +149,10 @@ def get_exp_dir(inf,
 def get_exp_data(exp_dir, start_trial, end_trial):
 
     exp_data = {
-        'error': [],
+        'kde_error': [],
+        'min_error': [],
+        'post_mean_error': [],
+        'num_sims': [],
         'rmse': [],
         'results': [],
         'all_dists': [],
@@ -155,10 +160,8 @@ def get_exp_data(exp_dir, start_trial, end_trial):
         'mmd': [],
         'all_emissions': [],
         'gt': [],
-        'posterior': [],
-        'model': [],
-        'props': []
-    }
+        'posterior': []
+        }
     
     for trial in range(start_trial, end_trial+1):
 
@@ -197,3 +200,13 @@ def str_to_bool(str):
 
     else:
         raise ValueError(f"Invalid boolean string: {str}")
+    
+
+def print_table(rows):
+
+    # Find max width for each column
+    col_widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    row_names = ['ABC', 'MCMC', 'SNL', 'TSNL']
+    
+    for row_name, row in zip(row_names, rows):
+        print(row_name.ljust(5) + " | " + " | ".join(cell.ljust(col_widths[i]) for i, cell in enumerate(row)))

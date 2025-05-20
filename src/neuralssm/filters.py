@@ -6,7 +6,7 @@ from typing import Optional
 from util.sample import resample
 from jaxtyping import Array, Float, Int
 from parameters import ParamSSM
-from ssm import SSM
+from simulators.ssm import SSM
 
 def swap_axes_on_values(outputs, axis1=0, axis2=1):
     return dict(map(lambda x: (x[0], jnp.swapaxes(x[1], axis1, axis2)), outputs.items()))

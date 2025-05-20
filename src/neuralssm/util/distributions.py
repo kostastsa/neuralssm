@@ -5,7 +5,9 @@ import tensorflow_probability.substrates.jax as tfp
 tfd = tfp.distributions
 
 class OscPrior(tfd.Distribution):
+
     def __init__(self, uniform_low, uniform_high, gaussian_loc, gaussian_scale, validate_args=False, allow_nan_stats=True, name="OscPrior"):
+
         parameters = dict(locals())  # Store parameters for TFP
         self.uniform_low = jnp.array(uniform_low)
         self.uniform_high = jnp.array(uniform_high)
@@ -62,6 +64,7 @@ class OscPrior(tfd.Distribution):
 
 
 if __name__ == "__main__":
+
     import matplotlib.pyplot as plt
     # Example usage
     key = jax.random.PRNGKey(42)

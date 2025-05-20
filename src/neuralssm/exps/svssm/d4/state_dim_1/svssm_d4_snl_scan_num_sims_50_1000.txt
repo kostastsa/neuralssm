@@ -1,4 +1,4 @@
-experiment
+ experiment
 {
 	sim: svssm
 	{
@@ -18,8 +18,8 @@ model: maf
 			random_order: False,
 			reverse: True,
 			batch_norm: False,
-			dropout: False
-,			nepochs: 20,
+			dropout: False, 
+			nepochs: 20,
 			lr: 0.0001
 		},		n_samples: 50,
 		n_rounds: 5,
@@ -47,8 +47,8 @@ model: maf
 			random_order: False,
 			reverse: True,
 			batch_norm: False,
-			dropout: False
-,			nepochs: 20,
+			dropout: False,
+			nepochs: 20,
 			lr: 0.0001
 		},		n_samples: 100,
 		n_rounds: 5,
@@ -76,12 +76,12 @@ model: maf
 			random_order: False,
 			reverse: True,
 			batch_norm: False,
-			dropout: False
-,			nepochs: 20,
+			dropout: False,
+			nepochs: 20,
 			lr: 0.0001
 		},		n_samples: 500,
 		n_rounds: 5,
-		train_on: best,
+		train_on: all,
 		mcmc_steps: 1000
 	}
 }
@@ -105,8 +105,8 @@ model: maf
 			random_order: False,
 			reverse: True,
 			batch_norm: False,
-			dropout: False
-,			nepochs: 20,
+			dropout: False,
+			nepochs: 20,
 			lr: 0.0001
 		},		n_samples: 1000,
 		n_rounds: 5,

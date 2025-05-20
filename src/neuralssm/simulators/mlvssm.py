@@ -4,7 +4,7 @@ import jax # type: ignore
 from jax import numpy as jnp # type: ignore
 import os
 from simulators.ssm import SPN
-from dynamax.utils.bijectors import RealToPSDBijector # type: ignore
+from util.bijectors import RealToPSDBijector # type: ignore
 import tensorflow_probability.substrates.jax.bijectors as tfb
 import tensorflow_probability.substrates.jax.distributions as tfd # type: ignore
 from util.misc import get_prior_fields, get_bool_tree

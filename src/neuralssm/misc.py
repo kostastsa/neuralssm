@@ -38,25 +38,20 @@ def get_simulator(sim_desc):
     """
 
     if isinstance(sim_desc, ed.LGSSM_Descriptor):
+
         from simulators import lgssm as sim
 
     elif isinstance(sim_desc, ed.LVSSM_Descriptor):
+
         from simulators import lvssm as sim
 
     elif isinstance(sim_desc, ed.SVSSM_Descriptor):
+
         from simulators import svssm as sim
 
     elif isinstance(sim_desc, ed.SIRSSM_Descriptor):
+
         from simulators import sirssm as sim
-
-    # elif sim_desc == 'lotka_volterra':
-    #     import simulators.lotka_volterra as sim
-
-    # elif sim_desc == 'gauss':
-    #     import simulators.gaussian as sim
-
-    # elif sim_desc == 'hodgkin_huxley':
-    #     import simulators.hodgkin_huxley as sim
 
     else:
         raise ValueError('unknown simulator')

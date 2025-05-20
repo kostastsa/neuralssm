@@ -1,11 +1,12 @@
 #!/bin/bash
 
-START_TRIAL="$1"
-END_TRIAL="$2"
-FILES="$3"
+SAMPLE_GT="$1"
+START_TRIAL="$2"
+END_TRIAL="$3"
+FILES="$4"
 
 while true; do
-    python3 main.py trials 'r' $1 $2 $3
+    python3 main.py trials $1 'r' $2 $3 $4
     status=$?
     if [ $status -eq 0 ]; then
         echo "run_trials completed successfully."
