@@ -13,6 +13,7 @@ from util.param import initialize
 import util.io
 
 def emission_dist(params, state):
+
     return tfd.MultivariateNormalFullCovariance(loc=state[2], covariance_matrix=params.emissions.cov.value)
 
 def setup(state_dim, emission_dim, input_dim, target_vars, dt_obs=0.01):
@@ -67,7 +68,7 @@ def get_ground_truth(state_dim, target_vars=None):
     Returns ground truth parameters and corresponding observed statistics.
     """
 
-    true_cps = jnp.array([jnp.log(0.01), jnp.log(0.5), jnp.log(1), jnp.log(0.01)])
+    true_cps = jnp.array([jnp.log(0.1), jnp.log(0.1)])
 
     return true_cps
 

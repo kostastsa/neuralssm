@@ -20,10 +20,11 @@ model: maf
 			batch_norm: False,
 			dropout: False,
 			nepochs: 20,
-			lr: 0.0001
+			lr: 1e-06
 		},		n_samples: 50,
 		n_rounds: 5,
 		train_on: all,
+		sampler: rwm,
 		mcmc_steps: 1000
 	}
 }
@@ -49,10 +50,11 @@ model: maf
 			batch_norm: False,
 			dropout: False,
 			nepochs: 20,
-			lr: 0.0001
+			lr: 1e-06
 		},		n_samples: 100,
 		n_rounds: 5,
 		train_on: all,
+		sampler: rwm,
 		mcmc_steps: 1000
 	}
 }
@@ -78,10 +80,11 @@ model: maf
 			batch_norm: False,
 			dropout: False,
 			nepochs: 20,
-			lr: 0.0001
+			lr: 1e-06
 		},		n_samples: 250,
 		n_rounds: 5,
 		train_on: all,
+		sampler: rwm,
 		mcmc_steps: 1000
 	}
 }
@@ -107,10 +110,11 @@ model: maf
 			batch_norm: False,
 			dropout: False,
 			nepochs: 20,
-			lr: 0.0001
+			lr: 1e-06
 		},		n_samples: 500,
 		n_rounds: 5,
 		train_on: all,
+		sampler: rwm,
 		mcmc_steps: 1000
 	}
 }

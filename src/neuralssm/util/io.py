@@ -22,8 +22,16 @@ def load(file):
     Loads data from file.
     """
 
-    with open(file + '.pkl', 'rb') as f:
-        data = pickle.load(f)
+    try:
+
+        with open(file + '.pkl', 'rb') as f:
+            data = pickle.load(f)
+    
+    except:
+
+        with open(file , 'rb') as f:
+
+            data = pickle.load(f)
 
     if hasattr(data, 'reset_theano_functions'):
         data.reset_theano_functions()

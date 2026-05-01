@@ -121,8 +121,11 @@ def sq_maximum_mean_discrepancy(xs, ys, wxs=None, wys=None, scale=None, return_s
     mmd2 = 2 * (kxx + kyy - kxy)
 
     if return_scale:
+
         return mmd2, scale
+
     else:
+
         return mmd2
 
 

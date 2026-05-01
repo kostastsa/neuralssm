@@ -3,6 +3,7 @@ sys.path.append(r'/Users/kostastsampourakis/Desktop/code/Python/projects/neurals
 from abc import ABC
 from abc import abstractmethod
 from parameters import ParamSSM
+import jax
 from jaxtyping import Array, Float
 from typing import Optional, Tuple, Callable
 import tensorflow_probability.substrates.jax.distributions as tfd
@@ -13,6 +14,10 @@ from jax.scipy.special import logsumexp as lse, gammaln
 import jax.numpy as jnp
 import jax.random as jr
 from util.types import PRNGKey # type: ignore
+
+import diffrax # type: ignore
+# from diffrax import MultiTerm, ODETerm, ControlTerm, BrownianPath, SaveAt, SDETerm, Euler # type: ignore
+
 
 class SSM(ABC):
     r"""A base class for state space models. Such models consist of parameters, which
@@ -392,7 +397,7 @@ class SPN(SSM):
         inputs: Optional[Float[Array, "input_dim"]]=None):
 
         state = state[1:]
-        return self.emission_dist(params, state).log_prob(emission)
+        return self.emission_dist(params, state).log_prob(emission).sum()
 
     def simulate(
         self,
@@ -435,50 +440,121 @@ class SPN(SSM):
         _, (states, emissions) = lax.scan(_step, initial_state, (next_keys, next_inputs))
 
         return states, emissions
-
-
-class NonlinearODE(SSM):
     
-    def __init__(
-        self,
-        state_dim: int,
-        emission_dim: int,
-        dynamics_fn: Callable,  # f(t, z, params)
-        emission_dist: Callable,  # same pattern as SPN
-        input_dim: int = 0,
-        dt: float = 0.1,
-        solver = None  # optionally allow passing a custom solver
-    ):
 
-        self.state_dim = state_dim
+class PolynomialSDE(SSM):
+
+    def __init__(self, 
+                 drift_fn: Callable, 
+                 diffusion_fn: Callable,
+                 emission_dim: int,
+                 emission_dist: Callable, 
+                 dt: float, 
+                 input_dim: int=0):
+        """
+        Args:
+            drift_fn: Callable f(x) -> R^D, deterministic drift (polynomial function)
+            diffusion_fn: Callable g(x) -> R^{D x D}, state-dependent diffusion
+            dt: float, integration time step
+            rng_key: JAX random key
+        """
+
+        self.drift_fn = drift_fn
+        self.diffusion_fn = diffusion_fn
         self.emission_dim = emission_dim
-        self.dynamics_fn = dynamics_fn
-        self.emission_dist = emission_dist
+        self.emission_dist = emission_dist 
         self.input_dim = input_dim
         self.dt = dt
-        self.solver = solver
 
-    def initial_distribution(self, params: ParamSSM, inputs=None):
+    def initial_distribution(
+        self,
+        params: ParamSSM,
+        inputs: Optional[Float[Array, "input_dim"]]=None
+    ) -> tfd.Distribution:
+
         return MVN(params.initial.mean.value, params.initial.cov.value)
 
-    def dynamics_simulator(self, key, params, state, inputs=None):
+    # def dynamics_simulator2(
+    #     self,
+    #     key: PRNGKey, 
+    #     params: ParamSSM,
+    #     state: Float[Array, "state_dim"],
+    #     inputs: Optional[Float[Array, "ntime input_dim"]]=None
+    #     ) -> jnp.ndarray:
 
-        solver = self.solver or Dopri5()
-        term = ODETerm(lambda t, y, args: self.dynamics_fn(t, y, params))
+    #     """
+    #     Simulate x_{t+1} given x_t using Euler–Maruyama integration.
+
+    #     Args:
+    #         x_t: jnp.ndarray, shape (D,)
+
+    #     Returns:
+    #         x_{t+1}: jnp.ndarray, shape (D,)
+    #     """
+
+    #     f_x = self.drift_fn(state, params)                        # Drift term
+    #     G_x = self.diffusion_fn(state, params)                    # Diffusion term, shape (D, D)
+    #     self.rng_key, subkey = jr.split(self.rng_key)
+    #     noise = jr.normal(subkey, shape=(state.shape[0],))
+    #     dx = f_x * self.dt + G_x @ (jnp.sqrt(self.dt) * noise)
+    #     next_state = state + dx
+
+    #     return next_state
+    
+    def dynamics_simulator(
+            self, 
+            key: PRNGKey,
+            params: ParamSSM,
+            state: Float[Array, "state_dim"],
+            inputs: Optional[Float[Array, "ntime input_dim"]]=None) -> jnp.ndarray:
+        
+        state_dim = state.shape[0]
+
+        solver = diffrax.Euler()
+        stepsize = self.dt
+        t0 = 0.0
+        t1 = self.dt
+
+        key, subkey = jr.split(key)
+        brownian = diffrax.VirtualBrownianTree(t0=t0, t1=t1, tol=1e-8, shape=(state_dim,), key=subkey)
+        drift_term = diffrax.ODETerm(lambda t, y, args: self.drift_fn(y, params))
+        diffusion_term = diffrax.ControlTerm(lambda t, y, args: self.diffusion_fn(y, params), brownian)
+        sde_term = diffrax.MultiTerm(drift_term, diffusion_term)
+
         sol = diffrax.diffeqsolve(
-            term,
-            solver=solver,
-            t0=0.0,
-            t1=self.dt,
-            dt0=self.dt,
+            sde_term,
+            solver,
+            t0=t0,
+            t1=t1,
+            dt0=stepsize,
             y0=state,
             args=None,
-            saveat=SaveAt(t1=True),
+            saveat=diffrax.SaveAt(t1=True),
         )
-        return sol.ys
 
-    def emission_simulator(self, key, params, state, inputs=None):
-        return self.emission_dist(params, state).sample(seed=key).flatten()
+        next_state = sol.ys[-1]
+        next_state = jnp.clip(next_state, a_min=1e-6) 
 
-    def emission_log_prob(self, params, emission, state, inputs=None):
-        return self.emission_dist(params, state).log_prob(emission)
+        return next_state
+    
+    def emission_simulator(
+        self,
+        key: PRNGKey,
+        params: ParamSSM,
+        state: Float[Array, "state_dim"],
+        inputs: Optional[Float[Array, "ntime input_dim"]]=None
+    ) -> tfd.Distribution:
+
+        inputs = inputs if inputs is not None else jnp.zeros(self.input_dim)
+        new_emission = self.emission_dist(params, state).sample(seed=key)
+
+        return new_emission.flatten()
+    
+    def emission_log_prob(
+        self,
+        params: ParamSSM,
+        emission: Float[Array, "emission_dim"],
+        state: Float[Array, "state_dim"],
+        inputs: Optional[Float[Array, "input_dim"]]=None):
+
+        return jnp.sum(self.emission_dist(params, state).log_prob(emission))
