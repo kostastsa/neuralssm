@@ -3,13 +3,14 @@ sys.path.append(r'/Users/kostastsampourakis/Desktop/code/Python/projects/neurals
 from jax import numpy as jnp # type: ignore
 import tensorflow_probability.substrates.jax.distributions as tfd # type: ignore
 from util.distributions import OscPrior
+import tensorflow_probability.substrates.jax.bijectors as tfb
 import numpyro.distributions as dist # type: ignore
 
 
 def _init_vals(emission_dim):
     
     state_dim = 2
-    initial_mean = 1.0 * jnp.array([50, 100]) #100 * jnp.ones(state_dim)
+    initial_mean = 1.0 * jnp.array([50, 100]) 
     initial_covariance = jnp.eye(state_dim) * 5.0
 
     pre = jnp.array([
@@ -28,11 +29,12 @@ def _init_vals(emission_dim):
 
     log_rates = jnp.array([jnp.log(0.01), jnp.log(0.5), jnp.log(1), jnp.log(0.01)])
 
-    emission_covariance = jnp.eye(emission_dim) * 10.0
+    # emission_cov = 900 * jnp.eye(emission_dim)
+    emission_alpha = jnp.array([0.1])
 
     init_vals = [[initial_mean, initial_covariance],
                 [pre, post, log_rates],
-                [emission_covariance]]
+                [emission_alpha]]
 
     return init_vals
 
@@ -69,12 +71,16 @@ def _param_dists(emission_dim, num_reactions):
     log_rates_dist = osc_dist
 
     # Emissions
+    ## covariance
     l = emission_dim * (emission_dim + 1) // 2
-    emission_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(l), scale_diag=0.1*jnp.ones(l))
+    emission_covariance_dist = tfd.MultivariateNormalDiag(loc=jnp.zeros(l), scale_diag= 0.1 * jnp.ones(l))
+
+    ## prob
+    emission_alpha_dist = tfd.MultivariateNormalDiag(loc=jnp.array([0.1]), scale_diag = 0.1 * jnp.ones(1))
 
     param_dists = [[initial_mean_dist, initial_covariance_dist],
                     [pre_dist, post_dist, log_rates_dist],
-                    [emission_covariance_dist]]
+                    [emission_alpha_dist]]
     
     return param_dists
 

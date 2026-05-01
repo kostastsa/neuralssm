@@ -2,6 +2,7 @@ import sys
 sys.path.append(r'/Users/kostastsampourakis/Desktop/code/Python/projects/neuralssm/src/neuralssm')
 import jax # type: ignore
 from jax import numpy as jnp # type: ignore
+from jax import debug
 import os
 from simulators.ssm import SPN
 from util.bijectors import RealToPSDBijector # type: ignore
@@ -12,27 +13,51 @@ from util.param import initialize
 from simulators.lvssm_params import _init_vals, _param_dists
 import util.io
 
-def emission_dist(params, state):
+# def emission_dist(params, state):
 
-    return tfd.MultivariateNormalFullCovariance(loc=state[1], covariance_matrix=params.emissions.cov.value)
+#     return tfd.MultivariateNormalFullCovariance(loc=state[1], covariance_matrix=params.emissions.cov.value)
+
+# def emission_dist(params, state):
+#     '''
+#     Binomial distribution
+#     '''
+
+#     p = params.emissions.prob.value
+#     n = state
+
+#     return tfd.Binomial(total_count=n, probs=p)
+
+def emission_dist(params, state):
+    '''
+    Binomial distribution
+    '''
+
+    state = state[1:]
+    loc = jnp.log(state)
+    scale = jnp.array([0.1] * state.shape[0])
+
+    return tfd.LogNormal(loc=loc, scale=scale)
+
 
 def setup(state_dim, emission_dim, input_dim, target_vars, dt_obs=0.1):
 
     name = 'lvssm'
+
     # Initialize model and simulate dataset
     param_names = [['mean', 'cov'],
                    ['pre', 'post', 'log_rates'],
-                   ['cov']]
+                #    ['cov']]
+                     ['prob']]
 
-    constrainers  = [[None, None],
+    constrainers  = [[None, RealToPSDBijector],
                      [None, None, None],
-                     [RealToPSDBijector]] # bijectors here defined unconstrained -> constrained
+                     [tfb.Sigmoid()]]
 
     num_reactions = 4
     init_vals = _init_vals(emission_dim)
     param_dists = _param_dists(emission_dim, num_reactions)
 
-    is_target = get_bool_tree(target_vars, param_names)   
+    is_target = get_bool_tree(target_vars, param_names)  
     prior_fields = get_prior_fields(init_vals, param_dists, is_target)
 
     props = initialize(prior_fields, param_names, constrainers)

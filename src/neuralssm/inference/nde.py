@@ -70,11 +70,11 @@ class SequentialNeuralLikelihood:
                         num_samples: int,
                         num_posterior_samples: int,
                         train_on: str,
+                        sampler: str,
                         mcmc_steps: int,
                         batch_size: int = 128,
                         num_epochs: int = 20,
                         learning_rate: float = 1 * 1e-4,
-                        rw_sigma=1.0,
                         logger = None,
                         num_tiles=None,
                         subsample=False,
@@ -92,6 +92,8 @@ class SequentialNeuralLikelihood:
         self.xparam = sample_prior(subkey, self.props, num_samples)[0]
         self.all_params = []
         self.time_all_rounds = []
+        train_losses = []
+        val_losses = []
 
         for r in range(num_rounds):
             
@@ -163,7 +165,7 @@ class SequentialNeuralLikelihood:
             optimizer = nnx.Optimizer(model, optax.adamw(learning_rate, weight_decay=1e-4)) 
             model, losses = self.train_model(model, optimizer, loaders, num_epochs, logger)            
             train_loss, val_loss = losses
-
+            
             if jnp.isnan(train_loss) or jnp.isnan(val_loss):
                 
                 assert False, "Forced assertion failure : NaN loss"
@@ -172,12 +174,15 @@ class SequentialNeuralLikelihood:
 
                 assert False, "Forced assertion failure : Loss too large"
 
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+
             logger.write('---------sampling new parameters\n')
 
             # Sample new parameters using trained likelihood and MCMC
             plogpdf = partial(logdensity_fn, model=model, emissions=observations, props=self.props, lag=self.lag)
             key, subkey = jr.split(key)
-            params_sample, _ = sample_logpdf(key=subkey, learner=self, logdensity_fn=plogpdf, num_samples=num_samples, num_mcmc_steps=mcmc_steps, rw_sigma=rw_sigma)
+            params_sample, _ = sample_logpdf(key=subkey, learner=self, logdensity_fn=plogpdf, prev_cps = sds[0], num_samples=num_samples, sampler=sampler, num_mcmc_steps=mcmc_steps)
             self.all_params.append(params_sample)
             tout = time.time()
             self.time_all_rounds.append(tout-tin)
@@ -189,10 +194,11 @@ class SequentialNeuralLikelihood:
         self.all_dists = all_dists
         self.all_emissions = all_emissions
         self.all_cond_params = all_cond_params
-
+        self.losses = (jnp.mean(jnp.array(train_losses)), jnp.mean(jnp.array(val_losses)))
+    
         # Sample posterior
         plogpdf = partial(logdensity_fn, model=model, emissions=observations, props=self.props, lag=self.lag)
         key, subkey = jr.split(key)
-        posterior_sample, posterior_cond_sample = sample_logpdf(key=subkey, learner=self, logdensity_fn=plogpdf, num_samples=num_posterior_samples, num_mcmc_steps=int(2*num_posterior_samples), rw_sigma=rw_sigma)
+        posterior_sample, posterior_cond_sample = sample_logpdf(key=subkey, learner=self, logdensity_fn=plogpdf, prev_cps=sds[0], num_samples=num_posterior_samples, sampler=sampler, num_mcmc_steps=int(2*num_posterior_samples))
 
         return  model, (posterior_sample, posterior_cond_sample)

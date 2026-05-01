@@ -288,9 +288,12 @@ class ExperimentRunner:
         if sample_gt:
 
             key, subkey = jr.split(key)
-            true_ps = sample_prior(key, props)[0]
+            true_ps = sample_prior(subkey, props)[0]
+            key, subkey = jr.split(key)
+            xparam = sample_prior(subkey, props)[0]
             true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
+            key, subkey = jr.split(key)
             states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
 
         else:
@@ -336,6 +339,7 @@ class ExperimentRunner:
                 num_samples=inf_desc.n_samples,
                 num_posterior_samples=n_post_samples,
                 train_on=inf_desc.train_on,
+                sampler=inf_desc.sampler,
                 mcmc_steps=inf_desc.mcmc_steps,
                 num_epochs=model_desc.nepochs,
                 learning_rate=model_desc.lr,
@@ -352,6 +356,7 @@ class ExperimentRunner:
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
             util.io.save(learner.all_emissions, os.path.join(exp_dir, 'all_emissions'))
             util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))
+            util.io.save(learner.losses, os.path.join(exp_dir, 'losses'))
             util.io.save((posterior_sample, posterior_cond_sample), os.path.join(exp_dir, 'posterior'))
             util.io.save(learner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples), os.path.join(exp_dir, 'all_dists'))
@@ -399,9 +404,12 @@ class ExperimentRunner:
         if sample_gt:
 
             key, subkey = jr.split(key)
-            true_ps = sample_prior(key, props)[0]
+            true_ps = sample_prior(subkey, props)[0]
+            key, subkey = jr.split(key)
+            xparam = sample_prior(subkey, props)[0]
             true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
+            key, subkey = jr.split(key)
             states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
 
         else:
@@ -448,6 +456,7 @@ class ExperimentRunner:
                 num_samples=inf_desc.n_samples,
                 num_posterior_samples=n_post_samples,
                 train_on=inf_desc.train_on,
+                    sampler=inf_desc.sampler,
                 mcmc_steps=inf_desc.mcmc_steps,
                 logger=logger,
                 num_tiles = num_tiles,
@@ -456,13 +465,13 @@ class ExperimentRunner:
                 subsample = subsample
             )
 
-
             key, subkey = jr.split(key)
             mll = marg_loglik(subkey, props, observations, model, 100, inf_desc.lag)
 
             util.io.save(mll, os.path.join(exp_dir, 'mll'))
             util.io.save(nnx.split(model), os.path.join(exp_dir, 'model'))
             util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
+            util.io.save(learner.losses, os.path.join(exp_dir, 'losses'))
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
             util.io.save(learner.all_emissions, os.path.join(exp_dir, 'all_emissions'))
             util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))
