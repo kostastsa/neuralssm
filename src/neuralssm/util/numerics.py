@@ -2,17 +2,28 @@ import jax.numpy as jnp
 from jax import vmap, lax, random as jr
 import jax.scipy.stats as jss
 from jax.scipy.special import logsumexp as lse
+import jax.numpy as jnp
+from jax.scipy.stats import norm, mode
+import jax
 
 
-def kde_error(particles, true_cps, sigma=1.0):
+def kde_error(particles, true_cps, sigma=None):
         
-    num_prt = particles.shape[0]
-    dim = particles.shape[1]
+    if sigma is None:
+
+        n = particles.shape[0]
+        d = particles.shape[1]
+        std_dev = jnp.std(particles, axis=0)
+        sigma = 2.06 * jnp.min(std_dev) * n ** (-1 / (d + 4))
+
+    n = particles.shape[0]
+    d = particles.shape[1]
     dps = particles - true_cps
     ds = - jnp.linalg.norm(dps, axis=1)**2 / 2 / sigma**2
-    logp = lse(ds) #- jnp.log(num_prt) - (dim/2) * jnp.log(2 * jnp.pi * sigma ** 2)
+    logp = lse(ds) - jnp.log(n) - (d/2) * jnp.log(2 * jnp.pi * sigma ** 2)
 
     return -logp
+
 
 def min_error(particles, true_cps, sigma=1.0):
 
@@ -24,18 +35,31 @@ def min_error(particles, true_cps, sigma=1.0):
     return jnp.min(ns)
 
 
-def post_mean_error(particles, true_cps):
+def bias(particles, true_cps):
 
     return jnp.linalg.norm(jnp.mean(particles, axis=0) - true_cps)
 
 
+def angular_bias(particles, true_cps):
+
+    return jnp.dot(jnp.mean(particles, axis=0) - true_cps, true_cps) / (jnp.linalg.norm(jnp.mean(particles, axis=0) - true_cps) * jnp.linalg.norm(true_cps))
+
+
+def sdev(particles):
+
+    mean = jnp.mean(particles, axis=0)
+    cov = jnp.einsum('ij, ik -> jk', particles-mean, particles-mean) / particles.shape[0]
+    std = jnp.trace(cov)
+
+    return std
+
+
 def rmse(particles, true_cps):
 
-    dps = particles - true_cps
-    nsq = jnp.linalg.norm(dps, axis=1) ** 2
-    mse = jnp.mean(nsq)
+    b = bias(particles, true_cps)
+    s = sdev(particles)
 
-    return jnp.sqrt(mse)
+    return jnp.sqrt(b**2 + s**2)
 
 
 def bootstrap(key, rmse_array, B):
@@ -125,6 +149,87 @@ def kmeans(key, data, num_clusters, tol=1e-4):
     return out[1]
 
 
+def gmm_em_1d_stable(x, num_iter=100, tol=1e-6, var_floor=1e-6, weight_floor=1e-3):
+
+    n = x.shape[0]
+
+    # Initialize means, variances, and weights
+    means = jnp.array([x.min(), x.max()])
+    variances = jnp.ones(2)
+    weights = jnp.array([0.5, 0.5])
+
+    def e_step(x, means, variances, weights):
+
+        probs = jnp.stack([
+            weights[k] * norm.pdf(x, loc=means[k], scale=jnp.sqrt(variances[k]))
+            for k in range(2)
+        ])
+        responsibilities = probs / probs.sum(axis=0)
+
+        return responsibilities
+
+    def m_step(x, responsibilities):
+
+        N_k = responsibilities.sum(axis=1)
+        N_k = jnp.maximum(N_k, 1e-3)  # avoid divide-by-zero
+
+        means = (responsibilities @ x) / N_k
+        variances = ((responsibilities * (x - means[:, None])**2).sum(axis=1)) / N_k
+        variances = jnp.maximum(variances, var_floor)  # apply variance floor
+
+        weights = N_k / x.shape[0]
+        weights = jnp.maximum(weights, weight_floor)
+        weights /= weights.sum()  # re-normalize
+
+        return means, variances, weights
+
+    def step_fn(carry, _):
+
+        means, variances, weights, _ = carry
+        resp = e_step(x, means, variances, weights)
+        new_means, new_vars, new_weights = m_step(x, resp)
+
+        return (new_means, new_vars, new_weights, resp), None
+
+    (final_means, final_vars, final_weights, resp), _ = jax.lax.scan(step_fn, (means, variances, weights, jnp.ones((2,n))), None, length=num_iter)
+    ids = jnp.argsort(final_means)
+    final_means = final_means[ids]
+    final_vars = final_vars[ids]
+    final_weights = final_weights[ids]
+
+    return final_means, final_vars, final_weights, resp
+
+
+def get_good_ids(errors, entropy_thresh=0.1):
+
+    gmm_means, gmm_vars, _, resp = gmm_em_1d_stable(errors)
+
+    if jnp.isnan(gmm_means).any() or jnp.isinf(gmm_means).any():
+
+        z = (errors - errors.mean()) / errors.std()
+        good_ids = z <= mode(z).mode + 1e-3
+        good_ids = jnp.arange(errors.shape[0])[good_ids]
+
+    else:
+
+        # resps: shape (2, N)
+        eps = 1e-10  # for numerical stability
+        log_resps = jnp.log(resp + eps)
+        entropies = -jnp.sum(resp * log_resps, axis=0)  # shape (N,)
+        mean_entropy = jnp.mean(entropies)
+
+        if mean_entropy < entropy_thresh:
+            # Case A: hard assignments, select cluster 0 only
+            good_ids = jnp.where(resp[0] > 1 - 1e-2)[0]
+            good_ids = jnp.arange(errors.shape[0])[good_ids]
+
+        else:
+            # Case B: soft assignments, keep all
+            good_ids = jnp.arange(errors.shape[0])
+
+    return good_ids
+
+
 def ratio(x, alpha, exp_matrix_gen, sample, sigma):
 
     exp_values = vmap(exp_matrix_gen, in_axes=(None, 0, None))(x, sample, sigma)
@@ -187,6 +292,10 @@ def find_quantile(prev_sample, new_sample, sigma=1.0):
 
 
 def average_min_distance(particles):
+    '''
+    Distance between each particle and its nearest neighbor.
+    This is the average of the minimum distances between each particle and its nearest neighbor.
+    '''
 
     particles = jnp.unique(particles, axis=0)
     ds = vmap(lambda y: vmap(lambda x: jnp.linalg.norm(x-y))(particles))(particles)
@@ -194,7 +303,8 @@ def average_min_distance(particles):
     min_ds = jnp.min(mod_ds, axis=1)
     avg_min_distance = jnp.mean(min_ds)
 
-    return avg_min_distance
+    return min_ds, avg_min_distance
+
 
 def average_pair_distance(particles):
 
@@ -203,7 +313,8 @@ def average_pair_distance(particles):
     mod_ds = jnp.triu(ds)[jnp.triu(ds)>0]
     mod_ds = mod_ds.flatten()
 
-    return jnp.mean(mod_ds)
+    return mod_ds, jnp.mean(mod_ds)
+
 
 def average_max_distance(particles):
 
@@ -211,27 +322,20 @@ def average_max_distance(particles):
     ds = vmap(lambda y: vmap(lambda x: jnp.linalg.norm(x-y))(particles))(particles)
     max_ds = jnp.max(ds, axis=1)
 
-    return jnp.mean(max_ds)
-
-def max_distance(particles):
-
-    particles = jnp.unique(particles, axis=0)
-    ds = vmap(lambda y: vmap(lambda x: jnp.linalg.norm(x-y))(particles))(particles)
-
-    return jnp.max(ds)
+    return max_ds, jnp.mean(max_ds)
 
 
 def compute_all_errors(cps, true_cps):
 
     kderr = kde_error(cps, true_cps)
     minerr = min_error(cps, true_cps)
-    pmerr = post_mean_error(cps, true_cps)
-    rmserr = rmse(cps, true_cps)
+    b = bias(cps, true_cps)
+    ab = angular_bias(cps, true_cps)
+    s = sdev(cps)
     
-    amd = average_min_distance(cps)
-    apd = average_pair_distance(cps)
-    amxd = average_max_distance(cps)
-    mxd = max_distance(cps)
+    mds, amd = average_min_distance(cps)
+    ads, apd = average_pair_distance(cps)
+    maxds, amxd = average_max_distance(cps)
 
-    return kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd
+    return kderr, minerr, b, ab, s, (mds, amd), (ads, apd), (maxds, amxd)
 

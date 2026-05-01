@@ -473,6 +473,7 @@ class SNL_Descriptor(InferenceDescriptor):
         self.n_samples = None
         self.n_rounds = None
         self.train_on = None
+        self.sampler = None
         self.mcmc_steps = None
         self.lag = -1
 
@@ -492,12 +493,13 @@ class SNL_Descriptor(InferenceDescriptor):
         str += '\t\tn_samples: {0},\n'.format(self.n_samples)
         str += '\t\tn_rounds: {0},\n'.format(self.n_rounds)
         str += '\t\ttrain_on: {0},\n'.format(self.train_on)
+        str += '\t\tsampler: {0},\n'.format(self.sampler)
         str += '\t\tmcmc_steps: {0}\n'.format(self.mcmc_steps)
         str += '\t}'
 
         return str
 
-    def create_desc(self, model_args, n_samples, n_rounds, train_on, mcmc_steps):
+    def create_desc(self, model_args, n_samples, n_rounds, train_on, sampler, mcmc_steps):
 
         model_desc = MAF_Descriptor().create_desc(*model_args)
 
@@ -507,6 +509,7 @@ class SNL_Descriptor(InferenceDescriptor):
         str += ',\t\tn_samples: {0},\n'.format(n_samples)
         str += '\t\tn_rounds: {0},\n'.format(n_rounds)
         str += '\t\ttrain_on: {0},\n'.format(train_on)
+        str += '\t\tsampler: {0},\n'.format(sampler)
         str += '\t\tmcmc_steps: {0}\n'.format(mcmc_steps)
         str += '\t}'
 
@@ -515,7 +518,7 @@ class SNL_Descriptor(InferenceDescriptor):
     def parse(self, str):
 
         str = util.misc.remove_whitespace(str)
-        m = re.match(r'snl\{model:(.*),n_samples:(.*),n_rounds:(.*),train_on:(all|last|best),mcmc_steps:(.*)\}\Z', str)
+        m = re.match(r'snl\{model:(.*),n_samples:(.*),n_rounds:(.*),train_on:(all|last|best),sampler:(.*),mcmc_steps:(.*)\}\Z', str)
 
         if m is None:
             raise ParseError(str)
@@ -524,11 +527,12 @@ class SNL_Descriptor(InferenceDescriptor):
         self.n_samples = int(m.group(2))
         self.n_rounds = int(m.group(3))
         self.train_on = m.group(4)
-        self.mcmc_steps = int(m.group(5))
+        self.sampler = m.group(5)
+        self.mcmc_steps = int(m.group(6))
 
     def get_dir(self):
 
-        return os.path.join('nde','snl','samples_{0}_rounds_{1}_train_on_{2}_mcmc_steps_{3}'.format(self.n_samples, self.n_rounds, self.train_on, self.mcmc_steps), self.model.get_id())
+        return os.path.join('nde','snl','samples_{0}_rounds_{1}_train_on_{2}_sampler_{3}_mcmc_steps_{4}'.format(self.n_samples, self.n_rounds, self.train_on, self.sampler, self.mcmc_steps), self.model.get_id())
 
 
 class TSNL_Descriptor(InferenceDescriptor):
@@ -541,6 +545,7 @@ class TSNL_Descriptor(InferenceDescriptor):
         self.lag = None
         self.subsample = None
         self.train_on = None
+        self.sampler = None
         self.mcmc_steps = None
 
         try:
@@ -561,12 +566,13 @@ class TSNL_Descriptor(InferenceDescriptor):
         str += '\t\tlag: {0},\n'.format(self.lag)
         str += '\t\tsubsample: {0},\n'.format(self.subsample)
         str += '\t\ttrain_on: {0},\n'.format(self.train_on)
+        str += '\t\tsampler: {0},\n'.format(self.sampler)
         str += '\t\tmcmc_steps: {0}\n'.format(self.mcmc_steps)
         str += '\t}'
 
         return str
 
-    def create_desc(self, model_args, n_samples, n_rounds, lag, subsample, train_on, mcmc_steps):
+    def create_desc(self, model_args, n_samples, n_rounds, lag, subsample, train_on, sampler, mcmc_steps):
 
         model_desc = MAF_Descriptor().create_desc(*model_args)
 
@@ -579,6 +585,7 @@ class TSNL_Descriptor(InferenceDescriptor):
         str += '\t\tlag: {0},\n'.format(lag)
         str += '\t\tsubsample: {0},\n'.format(subsample)
         str += '\t\ttrain_on: {0},\n'.format(train_on)
+        str += '\t\tsampler: {0},\n'.format(sampler)
         str += '\t\tmcmc_steps: {0}\n'.format(mcmc_steps)
         str += '\t}'
 
@@ -587,7 +594,7 @@ class TSNL_Descriptor(InferenceDescriptor):
     def parse(self, str):
 
         str = util.misc.remove_whitespace(str)
-        m = re.match(r'tsnl\{model:(.*),n_samples:(.*),n_rounds:(.*),lag:(.*),subsample:(.*),train_on:(all|last|best),mcmc_steps:(.*)\}\Z', str)
+        m = re.match(r'tsnl\{model:(.*),n_samples:(.*),n_rounds:(.*),lag:(.*),subsample:(.*),train_on:(all|last|best),sampler:(.*),mcmc_steps:(.*)\}\Z', str)
 
         if m is None:
             raise ParseError(str)
@@ -598,11 +605,12 @@ class TSNL_Descriptor(InferenceDescriptor):
         self.lag = int(m.group(4))
         self.subsample = float(m.group(5))
         self.train_on = m.group(6)
-        self.mcmc_steps = int(m.group(7))
+        self.sampler = m.group(7)
+        self.mcmc_steps = int(m.group(8))
 
     def get_dir(self):
 
-        return os.path.join('nde','tsnl', 'samples_{0}_rounds_{1}_lag_{2}_subsample_{3}_train_on_{4}_mcmc_steps_{5}'.format(self.n_samples, self.n_rounds, self.lag, self.subsample, self.train_on, self.mcmc_steps), self.model.get_id())
+        return os.path.join('nde','tsnl', 'samples_{0}_rounds_{1}_lag_{2}_subsample_{3}_train_on_{4}_sampler_{5}_mcmc_steps_{6}'.format(self.n_samples, self.n_rounds, self.lag, self.subsample, self.train_on, self.sampler, self.mcmc_steps), self.model.get_id())
         
 
 class ModelDescriptor:
@@ -661,7 +669,17 @@ class MAF_Descriptor(ModelDescriptor):
 
         return str
     
-    def create_desc(self, nmades, dhidden, nhidden, act_fun, random_order, reverse, batch_norm, dropout, nepochs, lr):
+    def create_desc(self, 
+                    nmades, 
+                    dhidden, 
+                    nhidden, 
+                    act_fun, 
+                    random_order, 
+                    reverse, 
+                    batch_norm, 
+                    dropout, 
+                    nepochs, 
+                    lr):
 
         str = 'model: maf\n'
         str += '\t\t{\n'

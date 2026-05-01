@@ -15,6 +15,7 @@ from functools import partial
 import os
 import time
 import subprocess
+import numpy as onp
 
 from experiment_runner import ExperimentRunner
 import experiment_descriptor as ed
@@ -23,12 +24,14 @@ import jax.random as jr
 import misc
 
 import util.numerics
-from util.numerics import compute_all_errors
+from util.numerics import compute_all_errors, gmm_em_1d_stable, get_good_ids
+from util.param import log_prior
 from util.misc import print_table
 from util.sample import sim_emissions, generate_emissions
 from util.train import find_mle, loglik_fn
 from inference.diagnostics.two_sample import sq_maximum_mean_discrepancy as mmd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch, Rectangle
 import matplotlib_inline # type: ignore
 import scienceplots # type: ignore
 
@@ -81,7 +84,7 @@ def parse_args():
 
     parser_trials = subparsers.add_parser('trials', help='run multiple experiment trials')
     parser_trials.add_argument('sample_gt', type=str2bool, help="A boolean flag (default: True)")
-    parser_trials.add_argument('seed', type=int_or_str, help='seed for PRNG')
+    parser_trials.add_argument('seed', type=int_or_str, help="seed for PRNG: integer, 'r' for random, or 's' to share each trial seed across experiments")
     parser_trials.add_argument('start', type=int, help='# of first trial')
     parser_trials.add_argument('end', type=int, help='# of last trial')
     parser_trials.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
@@ -115,12 +118,27 @@ def parse_args():
     parser_errors.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
     parser_errors.set_defaults(func=eval_and_plot_errors)
 
-    parser_mmd = subparsers.add_parser('mmd', help='plot error by variable and inference method')
+    parser_lp_histogram = subparsers.add_parser('lp_histogram', help='plot prior logprob of sampled ground truth against trial errors')
+    parser_lp_histogram.add_argument('start', type=int, help='# of first trial')
+    parser_lp_histogram.add_argument('end', type=int, help='# of last trial')
+    parser_lp_histogram.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
+    parser_lp_histogram.add_argument('--lp-bins', type=int, default=5, help='# of -log p(gt) bins for method-wise boxplots')
+    parser_lp_histogram.set_defaults(func=lp_histogram)
+
+    parser_gen_emissions = subparsers.add_parser('gen_emissions', help='generate emissions')
+    parser_gen_emissions.add_argument('sample_gt', type=str2bool, help="A boolean flag (default: True)")
+    parser_gen_emissions.add_argument('start', type=int, help='# of first trial')
+    parser_gen_emissions.add_argument('end', type=int, help='# of last trial')
+    parser_gen_emissions.add_argument('num_samples', type=int, help='# of samples to generate')
+    parser_gen_emissions.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
+    parser_gen_emissions.set_defaults(func=gen_emissions)
+
+    parser_mmd = subparsers.add_parser('eval_and_plot_mmd', help='plot error by variable and inference method')
+    parser_mmd.add_argument('sample_gt', type=str2bool, help="A boolean flag (default: True)")
     parser_mmd.add_argument('start', type=int, help='# of first trial')
     parser_mmd.add_argument('end', type=int, help='# of last trial')
-    parser_mmd.add_argument('num_samples', type=int, help='# number of samples to estimate MMD')
     parser_mmd.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
-    parser_mmd.set_defaults(func=plot_mmd)
+    parser_mmd.set_defaults(func=eval_and_plot_mmd)
 
     parser_plot_by_var = subparsers.add_parser('plotvar', help='plot error by variable and inference method')
     parser_plot_by_var.add_argument('varX', type=str, help='variable to plot by')
@@ -193,8 +211,23 @@ def run_trials(args):
         raise ValueError('end trial can''t be less than start trial')
 
     exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
-    seed = int(time.time() * 1000) if args.seed=='r' else args.seed  
-    key = jr.PRNGKey(seed)
+    shared_seed = args.seed == 's'
+
+    if args.seed == 'r':
+
+        seed = int(time.time() * 1000)
+
+    elif shared_seed:
+
+        seed = None
+
+    else:
+
+        seed = int(args.seed)
+
+    if not shared_seed:
+
+        key = jr.PRNGKey(seed)
     
     for exp_desc in exp_descs:
 
@@ -225,8 +258,17 @@ def run_trials(args):
 
                     os.rmdir(trial_dir)
 
-                key, subkey = jr.split(key)
-                runner.run(trial=trial, sample_gt=args.sample_gt, plot_sims=True, key=subkey, seed=seed)
+                if shared_seed:
+
+                    trial_seed = trial
+                    subkey, _ = jr.split(jr.PRNGKey(trial_seed))
+
+                else:
+
+                    trial_seed = seed
+                    key, subkey = jr.split(key)
+
+                runner.run(trial=trial, sample_gt=args.sample_gt, plot_sims=True, key=subkey, seed=trial_seed)
 
             except misc.AlreadyExistingExperiment:
 
@@ -289,8 +331,8 @@ def view_ensemble(args, show=False):
 
         kderr_array = []
         minerr_array = []
-        pmerr_array = []
-        rmse_array = []
+        bias_array = []
+        sdev_array = []
         mmd_array = []
         num_sims_array = []
 
@@ -319,14 +361,13 @@ def view_ensemble(args, show=False):
                     num_sims = util.io.load(os.path.join(exp_dir, 'num_sims'))
                     kderr = util.io.load(os.path.join(exp_dir, 'kde_error'))
                     minerr = util.io.load(os.path.join(exp_dir, 'min_error'))
-                    pmerr = util.io.load(os.path.join(exp_dir, 'post_mean_error'))
-                    rmserr = util.io.load(os.path.join(exp_dir, 'rmse')) 
-                    amd, apd, amxd, mxd = util.io.load(os.path.join(exp_dir, 'sample_dists'))
+                    bias = util.io.load(os.path.join(exp_dir, 'bias'))
+                    sdev = util.io.load(os.path.join(exp_dir, 'sdev')) 
 
                     kderr_array.append(kderr)
                     minerr_array.append(minerr)
-                    pmerr_array.append(pmerr)
-                    rmse_array.append(rmserr)
+                    bias_array.append(bias)
+                    sdev_array.append(sdev)
                     num_sims_array.append(num_sims)
 
                     if get_mmd:
@@ -343,15 +384,22 @@ def view_ensemble(args, show=False):
         kderr_array = jnp.array(kderr_array)
         kderr_array = kderr_array[~(jnp.isnan(kderr_array) + jnp.isinf(kderr_array))]
 
+        # good_ids = get_good_ids(kderr_array)
+        good_ids = jnp.arange(kderr_array.shape[0])
+        good_pct = good_ids.shape[0]            
+        kderr_array = kderr_array[good_ids]
+
         minerr_array = jnp.array(minerr_array)
+        minerr_array = minerr_array[good_ids]
         minerr_array = minerr_array[~(jnp.isnan(minerr_array) + jnp.isinf(minerr_array))]
 
-        pmerr_array = jnp.array(pmerr_array)
-        pmerr_array = pmerr_array[~(jnp.isnan(pmerr_array) + jnp.isinf(pmerr_array))]
+        bias_array = jnp.array(bias_array)
+        bias_array = bias_array[good_ids]
+        bias_array = bias_array[~(jnp.isnan(bias_array) + jnp.isinf(bias_array))]
 
-        rmse_array = jnp.array(rmse_array)
-        rmse_array = rmse_array[~(jnp.isnan(rmse_array) + jnp.isinf(rmse_array))]
-
+        sdev_array = jnp.array(sdev_array)
+        sdev_array = sdev_array[good_ids]
+        sdev_array = sdev_array[~(jnp.isnan(sdev_array) + jnp.isinf(sdev_array))]
 
         key, subkey = jr.split(key)
         kderr, _ = util.numerics.bootstrap(subkey, kderr_array, 100)
@@ -364,14 +412,14 @@ def view_ensemble(args, show=False):
         std_minerr = jnp.std(minerr)
 
         key, subkey = jr.split(key)
-        pmerr, _ = util.numerics.bootstrap(subkey, pmerr_array, 100)
-        mean_pmerr = jnp.mean(pmerr)
-        std_pmerr = jnp.std(pmerr)
+        bias, _ = util.numerics.bootstrap(subkey, bias_array, 100)
+        mean_bias = jnp.mean(bias)
+        std_bias = jnp.std(bias)
 
         key, subkey = jr.split(key)
-        rmserr, _ = util.numerics.bootstrap(subkey, rmse_array, 100)
-        mean_rmse = jnp.mean(rmserr)
-        std_rmse = jnp.std(rmserr)
+        sdev, _ = util.numerics.bootstrap(subkey, sdev_array, 100)
+        mean_sdev = jnp.mean(sdev)
+        std_sdev = jnp.std(sdev)
 
         mmd_array = jnp.array(mmd_array)
         mmd_array = mmd_array[~(jnp.isnan(mmd_array) + jnp.isinf(mmd_array))]
@@ -384,16 +432,16 @@ def view_ensemble(args, show=False):
         mean_num_sims = jnp.mean(num_sims_array)
 
         if isinstance(exp_desc.inf, ed.ABC_Descriptor):
-            abc.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
+            abc.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_bias, std_bias, mean_sdev, std_sdev, good_pct])
         
         elif isinstance(exp_desc.inf, ed.BPF_MCMC_Descriptor):
-            mcmc.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
+            mcmc.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_bias, std_bias, mean_sdev, std_sdev, good_pct])
 
         elif isinstance(exp_desc.inf, ed.SNL_Descriptor):
-            snl.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
+            snl.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_bias, std_bias, mean_sdev, std_sdev, good_pct])
 
         elif isinstance(exp_desc.inf, ed.TSNL_Descriptor):
-            tsnl.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_pmerr, std_pmerr, mean_rmse, std_rmse])
+            tsnl.results.append([mean_num_sims, mean_kderr, std_kderr, mean_minerr, std_minerr, mean_bias, std_bias, mean_sdev, std_sdev, good_pct])
 
     abc.make_jnp()
     mcmc.make_jnp()
@@ -401,6 +449,7 @@ def view_ensemble(args, show=False):
     tsnl.make_jnp()
 
     fig, ax = plt.subplots(4, 1, figsize=(5, 5))
+    log = ''
 
     for alg in [abc, mcmc, snl, tsnl]:
 
@@ -408,26 +457,33 @@ def view_ensemble(args, show=False):
 
             ax[0].plot(alg.results[:, 0], alg.results[:, 1], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
             ax[0].fill_between(alg.results[:, 0], alg.results[:,1]-alg.results[:, 2], alg.results[:, 1] + alg.results[:, 2], color=alg.color, alpha=0.05)
-            ax[0].set_ylabel(r'$\mathcal{E}_{KDE}$')
-            ax[0].legend(prop={'size': 5})
+            ax[0].set_ylabel(r'$\mathcal{E}_{KDE}$', fontsize=12)
+            ax[0].set_xticklabels([])  
+            # ax[0].legend(prop={'size': 8}, fontsize=12)
+            handles, labels = ax[0].get_legend_handles_labels()
+
 
             ax[1].plot(alg.results[:, 0], alg.results[:, 3], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
             ax[1].fill_between(alg.results[:, 0], alg.results[:, 3]-alg.results[:, 4], alg.results[:, 3] + alg.results[:, 4], color=alg.color, alpha=0.05)
-            ax[1].set_xlabel('log Number of simulations')
-            ax[1].set_ylabel(r'$\mathcal{E}_{min}$')
-            ax[1].legend(prop={'size': 5})
+            ax[1].set_ylabel(r'$\mathcal{E}_{min}$', fontsize=12)
+            ax[1].set_xticklabels([]) 
+            # ax[1].legend(prop={'size': 8}, fontsize=12)
 
             ax[2].plot(alg.results[:, 0], alg.results[:, 5], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
             ax[2].fill_between(alg.results[:, 0], alg.results[:, 5]-alg.results[:, 6], alg.results[:, 5] + alg.results[:, 6], color=alg.color, alpha=0.05)
-            ax[2].set_xlabel('log Number of simulations')
-            ax[2].set_ylabel(r'$\mathcal{E}_{B}$')
-            ax[2].legend(prop={'size': 5})
+            ax[2].set_ylabel('bias', fontsize=12)
+            ax[2].set_xticklabels([])
+            # ax[2].legend(prop={'size': 8}, fontsize=12)
 
             ax[3].plot(alg.results[:, 0], alg.results[:, 7], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
             ax[3].fill_between(alg.results[:, 0], alg.results[:, 7]-alg.results[:, 8], alg.results[:, 7] + alg.results[:, 8], color=alg.color, alpha=0.05)
-            ax[3].set_xlabel('log Number of simulations')
-            ax[3].set_ylabel(r'$\mathcal{E}_{RMSE}$')
-            ax[3].legend(prop={'size': 5})
+            ax[3].set_xlabel('log Number of simulations', fontsize=12)
+            ax[3].set_ylabel('st. dev.', fontsize=12)
+            for label in ax[3].get_xticklabels():
+                label.set_fontsize(10)
+            # ax[3].legend(prop={'size': 8}, fontsize=12)
+
+            log += f'{alg.name}: pcts = {alg.results[:, -1]} \n'
 
         except IndexError:
 
@@ -437,7 +493,12 @@ def view_ensemble(args, show=False):
             
             print(f'{alg.name} has no results')
 
+
+    fig.legend(handles, labels, loc='upper center', ncol=len(labels), frameon=False, fontsize=10)
+    fig.tight_layout(rect=[0, 0, 1, 0.95])         
     fig.savefig(os.path.join(fig_dir, f'{exp_desc.sim.name}_dim_{state_dim}_scan_num_sims_' + '_'.join(exp_desc.sim.target_vars) + f'_{args.sample_gt}' + '.pdf'), format="pdf", dpi=800)
+    util.io.save_txt(log, os.path.join(fig_dir, f'{exp_desc.sim.name}_dim_{state_dim}_scan_num_sims_' + '_'.join(exp_desc.sim.target_vars) + f'_{args.sample_gt}' + '.txt'))
+
 
     if show:
 
@@ -589,7 +650,7 @@ def eval_and_plot_errors(args, show=False):
     """
 
     from experiment_viewer import plt
-    from util.numerics import kde_error, min_error, post_mean_error, rmse
+    from util.numerics import kde_error, min_error, bias, sdev
 
     seed = int(time.time() * 1000)
     key = jr.PRNGKey(seed)
@@ -600,8 +661,9 @@ def eval_and_plot_errors(args, show=False):
 
         kderr_trials = []
         minerr_trials = []
-        pmerr_trials = []
-        rmse_trials = []
+        bias_trials = []
+        ang_bias_trials = []
+        sdev_trials = []
         inf_desc = exp_desc.inf
         sim_desc = exp_desc.sim
 
@@ -623,38 +685,42 @@ def eval_and_plot_errors(args, show=False):
                     if isinstance(inf_desc, ed.ABC_Descriptor):
 
                         cps, _, counts = util.io.load(os.path.join(exp_dir, 'results'))
-                        kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd = compute_all_errors(cps, true_cps)
+                        kderr, minerr, bias, ang_bias, sdev, (mds, amd), (ads, apd), (maxds, amxd) = compute_all_errors(cps, true_cps)
                         num_simulations = counts * sim_desc.num_timesteps
 
                     elif isinstance(inf_desc, ed.BPF_MCMC_Descriptor):
 
                         cps, _ = util.io.load(os.path.join(exp_dir, 'results'))
-                        kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd = compute_all_errors(cps, true_cps)
+                        kderr, minerr, bias, ang_bias, sdev, (mds, amd), (ads, apd), (maxds, amxd) = compute_all_errors(cps, true_cps)
                         num_simulations = inf_desc.num_prt * sim_desc.num_timesteps * inf_desc.mcmc_steps * inf_desc.num_iters
 
                     elif isinstance(inf_desc, ed.SNL_Descriptor):
 
                         _, cps = util.io.load(os.path.join(exp_dir, 'posterior'))
-                        kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd = compute_all_errors(cps, true_cps)
+                        kderr, minerr, bias, ang_bias, sdev, (mds, amd), (ads, apd), (maxds, amxd) = compute_all_errors(cps, true_cps)
                         num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
                             
                     elif isinstance(inf_desc, ed.TSNL_Descriptor):
 
                         _, cps = util.io.load(os.path.join(exp_dir, 'posterior'))
-                        kderr, minerr, pmerr, rmserr, amd, apd, amxd, mxd = compute_all_errors(cps, true_cps)
+                        kderr, minerr, bias, ang_bias, sdev, (mds, amd), (ads, apd), (maxds, amxd) = compute_all_errors(cps, true_cps)
                         num_simulations = inf_desc.n_rounds * inf_desc.n_samples * sim_desc.num_timesteps
 
                     util.io.save(kderr, os.path.join(exp_dir, 'kde_error'))
                     util.io.save(minerr, os.path.join(exp_dir, 'min_error'))
-                    util.io.save(pmerr, os.path.join(exp_dir, 'post_mean_error'))
-                    util.io.save(rmserr, os.path.join(exp_dir, 'rmse'))
-                    util.io.save((amd, apd, amxd, mxd), os.path.join(exp_dir, 'sample_dists'))
+                    util.io.save(bias, os.path.join(exp_dir, 'bias'))
+                    util.io.save(ang_bias, os.path.join(exp_dir, 'ang_bias'))
+                    util.io.save(sdev, os.path.join(exp_dir, 'sdev'))
+                    util.io.save({'min_dist':(mds, amd), 
+                                  'pair_dist':(ads, apd), 
+                                  'max_dist': (maxds, amxd)}, os.path.join(exp_dir, 'sample_dists'))
                     util.io.save(jnp.log(num_simulations), os.path.join(exp_dir, 'num_sims'))
 
                     kderr_trials.append(kderr)
                     minerr_trials.append(minerr)
-                    pmerr_trials.append(pmerr)
-                    rmse_trials.append(rmserr)
+                    bias_trials.append(bias)
+                    ang_bias_trials.append(ang_bias)
+                    sdev_trials.append(sdev)
 
                 except FileNotFoundError:
                     print('ERROR FILE NOT FOUND')
@@ -678,18 +744,21 @@ def eval_and_plot_errors(args, show=False):
 
             kderr_trials = jnp.array(kderr_trials)
             minerr_trials = jnp.array(minerr_trials)
-            pmerr_trials = jnp.array(pmerr_trials)
-            rmse_trials = jnp.array(rmse_trials)
+            bias_trials = jnp.array(bias_trials)
+            ang_bias_trials = jnp.array(ang_bias_trials)
+            sdev_trials = jnp.array(sdev_trials)
 
             #remove NaNs 
             nans_infs = jnp.isnan(kderr_trials) + jnp.isinf(kderr_trials)
             kderr_trials = kderr_trials[~nans_infs]
             nans_infs = jnp.isnan(minerr_trials) + jnp.isinf(minerr_trials)
             minerr_trials = minerr_trials[~nans_infs]
-            nans_infs = jnp.isnan(pmerr_trials) + jnp.isinf(pmerr_trials)
-            pmerr_trials = pmerr_trials[~nans_infs]
-            nans_infs = jnp.isnan(rmse_trials) + jnp.isinf(rmse_trials)
-            rmse_trials = rmse_trials[~nans_infs]
+            nans_infs = jnp.isnan(bias_trials) + jnp.isinf(bias_trials)
+            bias_trials = bias_trials[~nans_infs]
+            nans_infs = jnp.isnan(ang_bias_trials) + jnp.isinf(ang_bias_trials)
+            ang_bias_trials = ang_bias_trials[~nans_infs]
+            nans_infs = jnp.isnan(sdev_trials) + jnp.isinf(sdev_trials)
+            sdev_trials = sdev_trials[~nans_infs]
 
             key, subkey = jr.split(key)
             kderr, _ = util.numerics.bootstrap(subkey, kderr_trials, 100)
@@ -702,16 +771,21 @@ def eval_and_plot_errors(args, show=False):
             minerr_std = jnp.std(minerr)
 
             key, subkey = jr.split(key)
-            pmerr, _ = util.numerics.bootstrap(subkey, pmerr_trials, 100)
-            pmerr_avg = jnp.mean(pmerr)
-            pmerr_std = jnp.std(pmerr)
+            bias, _ = util.numerics.bootstrap(subkey, bias_trials, 100)
+            bias_avg = jnp.mean(bias)
+            bias_std = jnp.std(bias)
 
             key, subkey = jr.split(key)
-            rmserr, _ = util.numerics.bootstrap(subkey, rmse_trials, 100)
-            rmse_avg = jnp.mean(rmserr)
-            rmse_std = jnp.std(rmserr)
+            ang_bias, _ = util.numerics.bootstrap(subkey, ang_bias_trials, 100)
+            ang_bias_avg = jnp.mean(ang_bias)
+            ang_bias_std = jnp.std(ang_bias)
 
-            fig, ax = plt.subplots(2, 2, figsize=(10, 10))
+            key, subkey = jr.split(key)
+            sdev, _ = util.numerics.bootstrap(subkey, sdev_trials, 100)
+            sdev_avg = jnp.mean(sdev)
+            sdev_std = jnp.std(sdev)
+
+            fig, ax = plt.subplots(2, 3, figsize=(10, 10))
 
             ax[0, 0].hist(kderr_trials, bins=50, alpha=0.5, label=f'{label}', density=True)
             ax[0, 0].axvline(kderr_avg, color='green', linestyle='dashed', linewidth=0.5)
@@ -731,31 +805,40 @@ def eval_and_plot_errors(args, show=False):
             ax[0, 1].set_title(f'{label} - E_min histogram %')
             ax[0, 1].legend(prop={'size': 5})
 
-            ax[1, 0].hist(pmerr_trials, bins=50, alpha=0.5, label=f'{label}', density=True)
-            ax[1, 0].axvline(pmerr_avg, color='green', linestyle='dashed', linewidth=0.5)
-            ax[1, 0].axvline(pmerr_avg - pmerr_std, color='gray', linestyle='dotted', linewidth=0.25)
-            ax[1, 0].axvline(pmerr_avg + pmerr_std, color='gray', linestyle='dotted', linewidth=0.25)
-            ax[1, 0].set_xlabel('post_mean_err')
+            ax[1, 0].hist(bias_trials, bins=50, alpha=0.5, label=f'{label}', density=True)
+            ax[1, 0].axvline(bias_avg, color='green', linestyle='dashed', linewidth=0.5)
+            ax[1, 0].axvline(bias_avg - bias_std, color='gray', linestyle='dotted', linewidth=0.25)
+            ax[1, 0].axvline(bias_avg + bias_std, color='gray', linestyle='dotted', linewidth=0.25)
+            ax[1, 0].set_xlabel('bias')
             ax[1, 0].set_ylabel('count')
-            ax[1, 0].set_title(f'{label} - E_PME histogram %')
+            ax[1, 0].set_title(f'{label} - Bias histogram %')
             ax[1, 0].legend(prop={'size': 5})
 
-            ax[1, 1].hist(rmse_trials, bins=50, alpha=0.5, label=f'{label}', density=True)
-            ax[1, 1].axvline(rmse_avg, color='green', linestyle='dashed', linewidth=0.5)
-            ax[1, 1].axvline(rmse_avg - rmse_std, color='gray', linestyle='dotted', linewidth=0.25)
-            ax[1, 1].axvline(rmse_avg + rmse_std, color='gray', linestyle='dotted', linewidth=0.25)
-            ax[1, 1].set_xlabel('rmse')
+            ax[1, 1].hist(ang_bias_trials, bins=50, alpha=0.5, label=f'{label}', density=True)
+            ax[1, 1].axvline(ang_bias_avg, color='green', linestyle='dashed', linewidth=0.5)
+            ax[1, 1].axvline(ang_bias_avg - ang_bias_std, color='gray', linestyle='dotted', linewidth=0.25)
+            ax[1, 1].axvline(ang_bias_avg + ang_bias_std, color='gray', linestyle='dotted', linewidth=0.25)
+            ax[1, 1].set_xlabel('ang_bias')
             ax[1, 1].set_ylabel('count')
-            ax[1, 1].set_title(f'{label} - E_RMSE histogram %')
+            ax[1, 1].set_title(f'{label} - Ang Bias histogram %')
             ax[1, 1].legend(prop={'size': 5})
+
+            ax[1, 2].hist(sdev_trials, bins=50, alpha=0.5, label=f'{label}', density=True)
+            ax[1, 2].axvline(sdev_avg, color='green', linestyle='dashed', linewidth=0.5)
+            ax[1, 2].axvline(sdev_avg - sdev_std, color='gray', linestyle='dotted', linewidth=0.25)
+            ax[1, 2].axvline(sdev_avg + sdev_std, color='gray', linestyle='dotted', linewidth=0.25)
+            ax[1, 2].set_xlabel('sdev')
+            ax[1, 2].set_ylabel('count')
+            ax[1, 2].set_title(f'{label} - SDev histogram %')
+            ax[1, 2].legend(prop={'size': 5})
 
             fig.savefig(os.path.join(f'{exp_root}', f'Error histograms.png'))
 
             fig, ax = plt.subplots(figsize=(4, 2))
             ax.plot(kderr_trials, label='kderr')
             ax.plot(minerr_trials, label='minerr')
-            ax.plot(pmerr_trials, label='pmerr')
-            ax.plot(rmse_trials, label='rmse')
+            ax.plot(bias_trials, label='bias')
+            ax.plot(sdev_trials, label='sdev')
 
             ax.set_xlabel('Trial')
             ax.set_ylabel('Error')
@@ -771,6 +854,377 @@ def eval_and_plot_errors(args, show=False):
     if show: 
 
        plt.show()
+
+
+def lp_histogram(args, show=False):
+    """
+    Plots prior log probability of sampled ground-truth parameters against trial
+    errors. This command is only meaningful for sample_gt=True experiments.
+    """
+
+    error_names = ['kde_error', 'min_error', 'bias', 'sdev']
+    error_labels = ['E_KDE', 'E_min', 'Bias', 'SDev']
+
+    def get_inference_label(inf_desc):
+
+        if isinstance(inf_desc, ed.ABC_Descriptor):
+
+            return 'smc-abc'
+
+        elif isinstance(inf_desc, ed.BPF_MCMC_Descriptor):
+
+            return 'mcmc'
+
+        elif isinstance(inf_desc, ed.SNL_Descriptor):
+
+            return 'snl'
+
+        elif isinstance(inf_desc, ed.TSNL_Descriptor):
+
+            return 't-snl'
+
+        else:
+
+            return 'unknown'
+
+    def collect_lp_errors(exp_desc):
+
+        print(exp_desc.pprint())
+
+        inf_desc = exp_desc.inf
+        sim_desc = exp_desc.sim
+        sim_mod = misc.get_simulator(sim_desc)
+
+        if hasattr(sim_desc, 'dt_obs'):
+
+            sim_setup = sim_mod.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars, sim_desc.dt_obs)
+
+        else:
+
+            sim_setup = sim_mod.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+
+        props = sim_setup['props']
+        exp_root = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir(), 'sample_gt_True')
+        trial_ids = []
+        log_probs = []
+        errors = {name: [] for name in error_names}
+
+        for trial in range(args.start, args.end + 1):
+
+            print(f'Working on trial {trial}')
+            exp_dir = os.path.join(exp_root, str(trial))
+
+            try:
+
+                (_, true_cps), _ = util.io.load(os.path.join(exp_dir, 'gt'))
+
+                if isinstance(inf_desc, ed.ABC_Descriptor):
+
+                    cps, _, _ = util.io.load(os.path.join(exp_dir, 'results'))
+
+                elif isinstance(inf_desc, ed.BPF_MCMC_Descriptor):
+
+                    cps, _ = util.io.load(os.path.join(exp_dir, 'results'))
+
+                elif isinstance(inf_desc, ed.SNL_Descriptor) or isinstance(inf_desc, ed.TSNL_Descriptor):
+
+                    _, cps = util.io.load(os.path.join(exp_dir, 'posterior'))
+
+                else:
+
+                    print('UNKNOWN INFERENCE DESCRIPTOR')
+                    continue
+
+                kderr, minerr, bias, _, sdev, _, _, _ = compute_all_errors(cps, true_cps)
+                lp = jnp.sum(log_prior(true_cps, props))
+
+                trial_ids.append(trial)
+                log_probs.append(float(lp))
+                errors['kde_error'].append(float(kderr))
+                errors['min_error'].append(float(minerr))
+                errors['bias'].append(float(bias))
+                errors['sdev'].append(float(sdev))
+
+            except FileNotFoundError:
+
+                print('ERROR FILE NOT FOUND')
+
+        if not log_probs:
+
+            print('Experiment Empty')
+            return None
+
+        log_probs = jnp.array(log_probs)
+        neg_log_probs = -log_probs
+        trial_ids = jnp.array(trial_ids)
+        errors = {name: jnp.array(vals) for name, vals in errors.items()}
+
+        return {
+            'exp_root': exp_root,
+            'label': get_inference_label(inf_desc),
+            'trials': trial_ids,
+            'log_probs': log_probs,
+            'neg_log_probs': neg_log_probs,
+            'errors': errors
+        }
+
+    def plot_single_result(result):
+
+        util.io.save(
+            {
+                'trials': result['trials'],
+                'log_probs': result['log_probs'],
+                'neg_log_probs': result['neg_log_probs'],
+                'errors': result['errors']
+            },
+            os.path.join(result['exp_root'], 'lp_histogram_data')
+        )
+
+        fig, ax = plt.subplots(2, 2, figsize=(8, 6))
+        axes = ax.ravel()
+
+        for i, (name, label) in enumerate(zip(error_names, error_labels)):
+
+            ys = result['errors'][name]
+            xs = result['neg_log_probs']
+            finite_ids = ~(jnp.isnan(xs) | jnp.isinf(xs) | jnp.isnan(ys) | jnp.isinf(ys))
+            axes[i].scatter(xs[finite_ids], ys[finite_ids], s=12, alpha=0.75)
+            axes[i].set_xlabel('-log p(gt)')
+            axes[i].set_ylabel(label)
+            axes[i].set_title(f'{label} vs -log p(gt)')
+
+            for x, y, trial in zip(xs[finite_ids], ys[finite_ids], result['trials'][finite_ids]):
+
+                axes[i].annotate(str(int(trial)), (x, y), fontsize=5, alpha=0.6)
+
+        fig.tight_layout()
+        fig.savefig(os.path.join(result['exp_root'], 'lp_histogram.png'), dpi=800)
+        plt.close(fig)
+
+    def get_finite_xy(result, name):
+
+        xs = onp.asarray(result['neg_log_probs'])
+        ys = onp.asarray(result['errors'][name])
+        finite_ids = onp.isfinite(xs) & onp.isfinite(ys)
+
+        return xs[finite_ids], ys[finite_ids]
+
+    def get_method_labels(results):
+
+        return list(dict.fromkeys(result['label'] for result in results))
+
+    def plot_combined_results(results, output_dir):
+
+        util.io.save(results, os.path.join(output_dir, 'lp_histogram_data'))
+
+        fig, ax = plt.subplots(2, 2, figsize=(8, 6))
+        axes = ax.ravel()
+        method_labels = get_method_labels(results)
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+        for i, (name, label) in enumerate(zip(error_names, error_labels)):
+
+            handles = []
+
+            for method_idx, method_label in enumerate(method_labels):
+
+                method_xs = []
+                method_ys = []
+
+                for result in results:
+
+                    if result['label'] != method_label:
+
+                        continue
+
+                    xs, ys = get_finite_xy(result, name)
+                    method_xs.extend(xs.tolist())
+                    method_ys.extend(ys.tolist())
+
+                if not method_xs:
+
+                    continue
+
+                method_xs = onp.asarray(method_xs)
+                method_ys = onp.asarray(method_ys)
+                mean_x = onp.mean(method_xs)
+                mean_y = onp.mean(method_ys)
+                width = 2.0 * onp.std(method_xs)
+                height = 2.0 * onp.std(method_ys)
+
+                if width == 0.0:
+
+                    width = max(1e-6, abs(mean_x) * 0.02)
+
+                if height == 0.0:
+
+                    height = max(1e-6, abs(mean_y) * 0.02)
+
+                color = colors[method_idx % len(colors)]
+                rect = Rectangle(
+                    (mean_x - width / 2.0, mean_y - height / 2.0),
+                    width,
+                    height,
+                    facecolor=color,
+                    edgecolor=color,
+                    alpha=0.25,
+                    linewidth=1.0,
+                    label=method_label
+                )
+
+                axes[i].add_patch(rect)
+                axes[i].scatter(mean_x, mean_y, s=18, color=color, edgecolors='black', linewidths=0.25, zorder=3)
+                handles.append(Patch(facecolor=color, edgecolor=color, alpha=0.25, label=method_label))
+
+            axes[i].autoscale_view()
+            axes[i].set_xlabel('-log p(gt)')
+            axes[i].set_ylabel(label)
+            axes[i].set_title(f'{label} 2D method boxes')
+
+            if handles:
+
+                axes[i].legend(handles=handles, prop={'size': 5})
+
+        fig.tight_layout()
+        fig.savefig(os.path.join(output_dir, 'lp_histogram.png'), dpi=800)
+        plt.close(fig)
+
+    def plot_binned_combined_results(results, output_dir):
+
+        all_xs = []
+
+        for result in results:
+
+            for name in error_names:
+
+                xs, _ = get_finite_xy(result, name)
+                all_xs.extend(xs.tolist())
+
+        if not all_xs:
+
+            print('No finite log probabilities found for binned plot')
+            return
+
+        num_bins = max(1, int(args.lp_bins))
+        min_x = min(all_xs)
+        max_x = max(all_xs)
+
+        if min_x == max_x:
+
+            min_x -= 0.5
+            max_x += 0.5
+
+        bin_edges = onp.linspace(min_x, max_x, num_bins + 1)
+        method_labels = get_method_labels(results)
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        group_width = 0.8
+        box_width = group_width / max(1, len(method_labels)) * 0.8
+        offsets = onp.linspace(
+            -group_width / 2 + box_width / 2,
+            group_width / 2 - box_width / 2,
+            len(method_labels)
+        )
+
+        fig, ax = plt.subplots(2, 2, figsize=(10, 6))
+        axes = ax.ravel()
+        bin_centers = onp.arange(num_bins)
+        bin_labels = [f'{bin_edges[i]:.2g}-{bin_edges[i + 1]:.2g}' for i in range(num_bins)]
+
+        for i, (name, label) in enumerate(zip(error_names, error_labels)):
+
+            for method_idx, method_label in enumerate(method_labels):
+
+                color = colors[method_idx % len(colors)]
+
+                for bin_idx in range(num_bins):
+
+                    vals = []
+
+                    for result in results:
+
+                        if result['label'] != method_label:
+
+                            continue
+
+                        xs, ys = get_finite_xy(result, name)
+
+                        if bin_idx == num_bins - 1:
+
+                            in_bin = (xs >= bin_edges[bin_idx]) & (xs <= bin_edges[bin_idx + 1])
+
+                        else:
+
+                            in_bin = (xs >= bin_edges[bin_idx]) & (xs < bin_edges[bin_idx + 1])
+
+                        vals.extend(ys[in_bin].tolist())
+
+                    if not vals:
+
+                        continue
+
+                    box = axes[i].boxplot(
+                        [vals],
+                        positions=[bin_centers[bin_idx] + offsets[method_idx]],
+                        widths=box_width,
+                        patch_artist=True,
+                        showfliers=True
+                    )
+
+                    for patch in box['boxes']:
+
+                        patch.set_facecolor(color)
+                        patch.set_alpha(0.45)
+
+                    for median in box['medians']:
+
+                        median.set_color('black')
+
+            axes[i].set_xlabel('-log p(gt) bin')
+            axes[i].set_ylabel(label)
+            axes[i].set_title(f'{label} by -log p(gt) bin and method')
+            axes[i].set_xticks(bin_centers)
+            axes[i].set_xticklabels(bin_labels, rotation=25, ha='right')
+            axes[i].legend(
+                handles=[
+                    Patch(facecolor=colors[j % len(colors)], alpha=0.45, label=method_label)
+                    for j, method_label in enumerate(method_labels)
+                ],
+                prop={'size': 5}
+            )
+
+        fig.tight_layout()
+        fig.savefig(os.path.join(output_dir, 'lp_histogram_binned.png'), dpi=800)
+        plt.close(fig)
+
+    for file in args.files:
+
+        exp_descs = ed.parse(util.io.load_txt(file))
+        inf_methods = {get_inference_label(exp_desc.inf) for exp_desc in exp_descs}
+        results = []
+
+        for exp_desc in exp_descs:
+
+            result = collect_lp_errors(exp_desc)
+
+            if result is not None:
+
+                results.append(result)
+
+        if len(inf_methods) == 1:
+
+            for result in results:
+
+                plot_single_result(result)
+
+        elif results:
+
+            output_dir = os.path.commonpath([result['exp_root'] for result in results])
+            plot_combined_results(results, output_dir)
+            plot_binned_combined_results(results, output_dir)
+
+    if show:
+
+        plt.show()
 
 
 def plot_by_var(args, show=False):
@@ -951,7 +1405,7 @@ def plot_dist(args, show=False):
             plt.show()
 
 
-def plot_mmd(args, show=False):
+def gen_emissions(args, show=False):
     """
     Plots the mmd between the samples from the true model and samples from the learned model.
     """
@@ -965,12 +1419,8 @@ def plot_mmd(args, show=False):
 
     for exp_desc in exp_descs:
 
-        sim = misc.get_simulator(exp_desc.sim)
         sim_desc = exp_desc.sim
         inf_desc = exp_desc.inf
-        sim_setup = sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
-        mmd_trials = []
-
 
         for trial in range(args.start, args.end + 1):
             
@@ -980,69 +1430,171 @@ def plot_mmd(args, show=False):
 
             try:
 
-                exp_root = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
-                exp_dir = exp_root + '/' + str(trial)
+                exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
+                exp_dir = os.path.join(exp_dir, f'sample_gt_{args.sample_gt}', str(trial))
 
                 try:
 
                     graphdef, state = util.io.load(os.path.join(exp_dir, 'model'))
-                    (true_ps, true_cps), _ = util.io.load(exp_dir + '/gt')
+                    (_, true_cps), _ = util.io.load(exp_dir + '/gt')
 
                 except FileNotFoundError:
+
                     print('MODEL FILE NOT FOUND')
 
                 model = nnx.merge(graphdef, state)
-                ssm = sim_setup['ssm']
 
                 if isinstance(exp_desc.inf, ed.SNL_Descriptor):
 
                     key, subkey = jr.split(key)
-                    est_sample = generate_emissions(key, sim_desc.emission_dim, model, true_cps, num_samples, -1, sim_desc.num_timesteps)
+                    gen_sample = generate_emissions(subkey, sim_desc.emission_dim, model, true_cps, num_samples, -1, sim_desc.num_timesteps)
 
                 elif isinstance(exp_desc.inf, ed.TSNL_Descriptor):
 
                     key, subkey = jr.split(key)
-                    est_sample = generate_emissions(key, sim_desc.emission_dim, model, true_cps, num_samples, inf_desc.lag, sim_desc.num_timesteps)
+                    gen_sample = generate_emissions(subkey, sim_desc.emission_dim, model, true_cps, num_samples, inf_desc.lag, sim_desc.num_timesteps)
 
-                key, subkey = jr.split(key)
-                keys = jr.split(key, num_samples)
-                fn = partial(sim_emissions, param=true_ps, ssm=ssm, num_timesteps=sim_desc.num_timesteps)
-                true_sample = jnp.array(list(map(fn, keys)))
-                mmd_error = mmd(est_sample.squeeze(), true_sample.squeeze())
-                mmd_trials.append(mmd_error)
-
-                nans_infs = jnp.isnan(est_sample) + jnp.isinf(est_sample)
-                nans_infs = nans_infs.any(axis=-1).flatten()
-
-                print('sample shape=', est_sample.shape)
-                print(f'simulated obs have nans in {jnp.sum(nans_infs)} out of {nans_infs.shape[0]} samples')
+                util.io.save(gen_sample, os.path.join(exp_dir, 'gen_sample'))
 
             except misc.AlreadyExistingExperiment:
+
                 print('TRIAL DOES NOT EXIST')
 
-            util.io.save(mmd_error, os.path.join(exp_dir, 'mmd'))
-            util.io.save(est_sample, os.path.join(exp_dir, 'est_sample'))
 
-            tout = time.time() - tin
-            print(f'Trial {trial} took {tout:.2f} seconds')
+def eval_and_plot_mmd(args, show=False):
+
+    """
+    Takes a set of experiments and line-plots the errors vs num_sims of each algorithm together.
+    """
+
+    from experiment_viewer import plt
+
+    seed = int(time.time() * 1000)
+    key = jr.PRNGKey(seed)
+
+    exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
+
+    snl = er.SNL_Results()
+    tsnl = er.TSNL_Results()
+
+    for exp_desc in exp_descs:
+
+        kde_array = []
+        mmd_trials = []
+        num_sims_array = []
+
+        sim = misc.get_simulator(exp_desc.sim)
+        sim_desc = exp_desc.sim
+        inf_desc = exp_desc.inf
+        sim_setup = sim.setup(sim_desc.state_dim, sim_desc.emission_dim, sim_desc.input_dim, sim_desc.target_vars)
+        ssm = sim_setup['ssm']
+
+        for trial in range(args.start, args.end + 1):
+
+            try:
+
+                print('ON TRIAL:', trial)
+
+                exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
+                exp_dir = os.path.join(exp_dir, f'sample_gt_{args.sample_gt}', str(trial))
+
+                try:
+
+                    print(exp_desc.pprint())
+
+                    state_dim = exp_desc.sim.state_dim  
+                    emission_dim = exp_desc.sim.emission_dim
+
+                    num_sims = util.io.load(os.path.join(exp_dir, 'num_sims'))
+                    gen_sample = util.io.load(os.path.join(exp_dir, 'gen_sample'))
+                    (true_ps, true_cps), _ = util.io.load(exp_dir + '/gt')
+                    
+                    kde = util.io.load(os.path.join(exp_dir, 'kde_error'))
+
+                    num_sims_array.append(num_sims)
+                    kde_array.append(kde)
+
+                except FileNotFoundError:
+
+                    print('ERROR FILE NOT FOUND')
+
+            except misc.AlreadyExistingExperiment:
+
+                print('TRIAL DOES NOT EXIST')
+
+            num_samples = gen_sample.shape[0]
+            key, subkey = jr.split(key)
+            keys = jr.split(key, num_samples)
+            fn = partial(sim_emissions, param=true_ps, ssm=ssm, num_timesteps=sim_desc.num_timesteps)
+            true_sample = jnp.array(list(map(fn, keys)))
+            mmd_error = jnp.array([mmd(gen_sample[:, t], true_sample[:, t]) for t in range(sim_desc.num_timesteps)]).mean()
+            mmd_trials.append(mmd_error)
+
+            nans_infs = jnp.isnan(gen_sample) + jnp.isinf(gen_sample)
+            nans_infs = nans_infs.any(axis=-1).flatten()
+
+            print('sample shape=', gen_sample.shape)
+            print(f'simulated obs have nans in {jnp.sum(nans_infs)} out of {nans_infs.shape[0]} samples')
+
+            util.io.save(mmd_error, os.path.join(exp_dir, 'mmd'))
+
+        kde_array = jnp.array(kde_array)
+        good_ids = get_good_ids(kde_array)
+        good_pct = good_ids.shape[0]            
+        kde_array = kde_array[good_ids]
+    
+        mmd_trials = jnp.array(mmd_trials)
+        mmd_trials = mmd_trials[good_ids]
 
         mmd_trials = jnp.array(mmd_trials)
-        
-        B = 100
+        mmd_trials = mmd_trials[~(jnp.isnan(mmd_trials) + jnp.isinf(mmd_trials))]
         key, subkey = jr.split(key)
-        _, boot_sample = util.numerics.bootstrap(subkey, mmd_trials, B)
-        mean_dist = jnp.mean(boot_sample, axis=0)
+        bootstrap_mmd, _ = util.numerics.bootstrap(subkey, mmd_trials, 100)
+        mean_mmd = jnp.mean(bootstrap_mmd)
+        std_mmd = jnp.std(bootstrap_mmd)
 
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-        ax.plot(mean_dist, 'o-', markersize=5, label='mean')
-        ax.set_xlabel('trial') 
-        ax.set_ylabel('MMD')
-        ax.legend(prop={'size': 5})
+        num_sims_array = jnp.array(num_sims_array)
+        num_sims_array = num_sims_array[~(jnp.isnan(num_sims_array) + jnp.isinf(num_sims_array))]
+        mean_num_sims = jnp.mean(num_sims_array)
 
-        fig.savefig(os.path.join(f'{exp_root}', 'mmd.png'))
+        if isinstance(exp_desc.inf, ed.SNL_Descriptor):
+            snl.results.append([mean_num_sims, mean_mmd, std_mmd, good_pct])
 
-        if show: 
-            plt.show()
+        elif isinstance(exp_desc.inf, ed.TSNL_Descriptor):
+            tsnl.results.append([mean_num_sims, mean_mmd, std_mmd, good_pct])
+
+    snl.make_jnp()
+    tsnl.make_jnp()
+
+    fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+    log = ''
+
+    for alg in [snl, tsnl]:
+
+        try:
+
+            ax.plot(alg.results[:, 0], alg.results[:, 1], marker=alg.marker, linestyle='dotted', color=alg.color, markersize=3, label=f'{alg.name}')
+            ax.fill_between(alg.results[:, 0], alg.results[:,1]-alg.results[:, 2], alg.results[:, 1] + alg.results[:, 2], color=alg.color, alpha=0.05)
+            ax.set_ylabel(r'$\mathcal{E}_{KDE}$')
+            ax.legend(prop={'size': 5})
+
+            log += f'{alg.name}: pcts = {alg.results[:, -1]} \n'
+
+        except IndexError:
+
+            print(f'No {alg.name} results to plot')
+
+        except TypeError as e:
+            
+            print(f'{alg.name} has no results')
+        
+    fig.savefig(os.path.join(fig_dir, f'{exp_desc.sim.name}_dim_{state_dim}_scan_num_sims_' + '_'.join(exp_desc.sim.target_vars) + f'_{args.sample_gt}_mmd' + '.pdf'), format="pdf", dpi=800)
+    util.io.save_txt(log, os.path.join(fig_dir, f'{exp_desc.sim.name}_dim_{state_dim}_scan_num_sims_' + '_'.join(exp_desc.sim.target_vars) + f'_{args.sample_gt}' + '.txt'))
+
+
+    if show:
+
+        plt.show()
 
 
 def model_selection(args, get_mle=False, show=False):
