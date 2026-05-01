@@ -56,27 +56,46 @@ def to_train_array(params, props):
              in constrained form, returns an empty array.
     '''
     list_trainable_params = []
+
     for field_name in ['initial', 'dynamics', 'emissions']:
+
         field = getattr(params, field_name)
         props_field = getattr(props, field_name)
         sublist_trainable_params = []
+
         for subfield_name in field.__dict__:
+
             subfield = getattr(field, subfield_name)
             props_subfield = getattr(props_field, subfield_name)
+
             if props_subfield.props.trainable:
+
                 if subfield.is_constrained: 
+
                     constrainer = props_subfield.props.constrainer
+
                     if constrainer is not None:
+
                         val = constrainer().inverse(subfield.value)
+
                     else:
+
                         val = subfield.value
+
                     sublist_trainable_params.append(val)
+
                 else:
+
                     sublist_trainable_params.append(subfield.value)
+
             else:
+
                 sublist_trainable_params.append(jnp.array([]))
+
         list_trainable_params.append(sublist_trainable_params)
+
     train_array, _ = ravel_pytree(list_trainable_params)
+
     return train_array
 
 

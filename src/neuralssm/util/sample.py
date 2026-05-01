@@ -3,9 +3,11 @@ import jax.numpy as jnp
 from jax import jit, lax, debug, vmap
 import blackjax
 from util.param import get_unravel_fn, tree_from_params, join_trees, params_from_tree, sample_prior, to_train_array
-from blackjax.mcmc.elliptical_slice import as_top_level_api
+# from blackjax.mcmc.elliptical_slice import as_top_level_api
+from blackjax.mcmc import elliptical_slice
 from functools import partial
 
+from typing import NamedTuple
 
 def map_sims(key, cond_param, props, ssmodel, num_timesteps):
 
@@ -53,22 +55,84 @@ def mcmc_inference_loop(rng_key, kernel, initial_state, num_samples):
     return states
 
 
-def sample_logpdf(key, learner, logdensity_fn, num_samples, num_mcmc_steps, rw_sigma):
+# def sample_logpdf(key, learner, logdensity_fn, num_samples, num_mcmc_steps, rw_sigma):
+
+#     assert(num_mcmc_steps > num_samples), 'Number of MCMC steps must be greater than number of samples'
+
+#     ## Initialize MCMC chain and kernel
+#     key, subkey = jr.split(key)
+#     initial_cond_params = to_train_array(sample_prior(subkey, learner.props, 1)[0], learner.props)
+#     random_walk = blackjax.additive_step_random_walk(logdensity_fn, blackjax.mcmc.random_walk.normal(rw_sigma))
+#     # hmc = blackjax.hmc(logdensity_fn, step_size=1e-3, inverse_mass_matrix=jnp.ones(initial_cond_params.shape), num_integration_steps=10)
+#     # initial_state = hmc.init(initial_cond_params)
+#     # kernel = jit(hmc.step)
+
+#     initial_state = random_walk.init(initial_cond_params)
+#     kernel = jit(random_walk.step)
+
+#     ## Run MCMC inference loop
+#     key, subkey = jr.split(key)
+#     mcmc_states = mcmc_inference_loop(subkey, kernel, initial_state, num_mcmc_steps)
+#     ps = mcmc_states.position[-num_samples:]
+
+#     # Setup params for next round
+#     params_sample = []
+#     param_names = learner.xparam._get_names()
+#     is_constrained_tree = learner.xparam._is_constrained_tree()
+
+#     for cond_param in ps:
+
+#         unravel_fn = get_unravel_fn(learner.xparam, learner.props)
+#         unravel = unravel_fn(cond_param)
+#         tree = tree_from_params(learner.xparam)
+#         new_tree = join_trees(unravel, tree, learner.props)
+#         param = params_from_tree(new_tree, param_names, is_constrained_tree)
+#         params_sample.append(param)
+
+#     return params_sample, ps
+
+def sample_logpdf(key, learner, logdensity_fn, prev_cps, num_samples, sampler, num_mcmc_steps):
 
     assert(num_mcmc_steps > num_samples), 'Number of MCMC steps must be greater than number of samples'
 
-    ## Initialize MCMC chain and kernel
+    # Initialize MCMC chain and kernel using elliptical slice sampling
     key, subkey = jr.split(key)
-    initial_cond_params = to_train_array(sample_prior(subkey, learner.props, 1)[0], learner.props)
-    random_walk = blackjax.additive_step_random_walk(logdensity_fn, blackjax.mcmc.random_walk.normal(rw_sigma))
-    # hmc = blackjax.hmc(logdensity_fn, step_size=1e-3, inverse_mass_matrix=jnp.ones(initial_cond_params.shape), num_integration_steps=10)
-    # initial_state = hmc.init(initial_cond_params)
-    # kernel = jit(hmc.step)
 
-    initial_state = random_walk.init(initial_cond_params)
-    kernel = jit(random_walk.step)
+    if prev_cps is None:
 
-    ## Run MCMC inference loop
+        initial_params = sample_prior(subkey, learner.props, 100)
+        _to_train_array = partial(to_train_array, props=learner.props)
+        initial_cond_params = jnp.array(list(map(_to_train_array, initial_params)))
+
+    else:
+
+        initial_cond_params = prev_cps
+
+    mean = jnp.mean(initial_cond_params, axis=0)
+    cov = jnp.cov(initial_cond_params, rowvar=False) if initial_cond_params.shape[0] > 1 else jnp.eye(initial_cond_params.shape[1]) * 0.1
+
+    dim = initial_cond_params.shape[1]
+
+    if sampler == 'hmc':
+
+        print("Using HMC fallback for 1D case.")
+        hmc = blackjax.hmc(logdensity_fn, step_size=1e-3, inverse_mass_matrix=jnp.ones((dim,)), num_integration_steps=10)
+        initial_state = hmc.init(mean)
+        kernel = jit(hmc.step)
+
+    elif sampler == 'ess':
+
+        sampler = blackjax.elliptical_slice(logdensity_fn, mean=mean, cov=cov)
+        initial_state = sampler.init(mean)
+        kernel = jit(sampler.step)
+
+    elif sampler == 'rwm':
+
+        sampler = blackjax.additive_step_random_walk(logdensity_fn, blackjax.mcmc.random_walk.normal(0.1))
+        initial_state = sampler.init(mean)
+        kernel = jit(sampler.step)
+
+    # Run MCMC inference loop
     key, subkey = jr.split(key)
     mcmc_states = mcmc_inference_loop(subkey, kernel, initial_state, num_mcmc_steps)
     ps = mcmc_states.position[-num_samples:]
@@ -148,7 +212,6 @@ def generate_emissions(key, emission_dim, model, cond_param, num_samples, lag, n
                     prev_lagged_emissions = jnp.concatenate([prev_lagged_emissions[1:], new_emission[None]])
                     emissions.append(new_emission)
                     t += 1
-                    # print(f'emission at timestep {t} generated')
 
             if skip_outer:
 
@@ -172,7 +235,7 @@ def generate_emissions(key, emission_dim, model, cond_param, num_samples, lag, n
     else:
 
         key, subkey = jr.split(key)
-        all_emissions = model.generate(subkey, num_samples, cond_param[None])[:, n_params:]
+        all_emissions = model.generate(subkey, num_samples, cond_param[None])[:, n_params:].reshape((num_samples, num_timesteps, emission_dim))
 
     return all_emissions
 

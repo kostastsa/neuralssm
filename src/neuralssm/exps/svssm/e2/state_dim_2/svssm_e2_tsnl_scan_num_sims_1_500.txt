@@ -27,6 +27,7 @@ experiment
 		lag: 5,
 		subsample: 1.0,
 		train_on: all,
+		sampler: rwm,
 		mcmc_steps: 1000
 	}
 }
@@ -59,6 +60,7 @@ experiment
 		lag: 5,
 		subsample: 1.0,
 		train_on: all,
+		sampler: rwm,
 		mcmc_steps: 1000
 	}
 }
@@ -91,6 +93,7 @@ experiment
 		lag: 5,
 		subsample: 1.0,
 		train_on: all,
+		sampler: rwm,
 		mcmc_steps: 1000
 	}
 }
@@ -123,6 +126,7 @@ experiment
 		lag: 5,
 		subsample: 1.0,
 		train_on: best,
+		sampler: rwm,
 		mcmc_steps: 1000
 	}
 }

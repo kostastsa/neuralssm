@@ -2,79 +2,63 @@ experiment
 {
 	sim: lvssm
 	{
-		emission_dim: 1,
-		num_timesteps: 300,
-		dt_obs: 0.01,
+		emission_dim: 2,
+		num_timesteps: 30,
+		dt_obs: 1.0,
 		target_vars: d3
 	},
 	inf: smc_abc
 	{
 		n_samples: 10,
-		qmax: 0.7,
-		sigma: 2.0
+		qmax: 0.8,
+		sigma: 1.0
 	}
 }
 experiment
 {
 	sim: lvssm
 	{
-		emission_dim: 1,
-		num_timesteps: 300,
-		dt_obs: 0.01,
+		emission_dim: 2,
+		num_timesteps: 30,
+		dt_obs: 1.0,
 		target_vars: d3
 	},
 	inf: smc_abc
 	{
 		n_samples: 50,
-		qmax: 0.7,
-		sigma: 2.0
+		qmax: 0.8,
+		sigma: 1.0
 	}
 }
 experiment
 {
 	sim: lvssm
 	{
-		emission_dim: 1,
-		num_timesteps: 300,
-		dt_obs: 0.01,
+		emission_dim: 2,
+		num_timesteps: 30,
+		dt_obs: 1.0,
 		target_vars: d3
 	},
 	inf: smc_abc
 	{
 		n_samples: 100,
-		qmax: 0.7,
-		sigma: 2.0
+		qmax: 0.8,
+		sigma: 1.0
 	}
 }
 experiment
 {
 	sim: lvssm
 	{
-		emission_dim: 1,
-		num_timesteps: 300,
-		dt_obs: 0.01,
+		emission_dim: 2,
+		num_timesteps: 30,
+		dt_obs: 1.0,
 		target_vars: d3
 	},
 	inf: smc_abc
 	{
-		n_samples: 200,
-		qmax: 0.7,
-		sigma: 2.0
-	}
-}
-experiment
-{
-	sim: lvssm
-	{
-		emission_dim: 1,
-		num_timesteps: 300,
-		dt_obs: 0.01,
-		target_vars: d3
-	},
-	inf: smc_abc
-	{
-		n_samples: 500,
-		qmax: 0.7,
-		sigma: 2.0
+		n_samples: 1000,
+		qmax: 0.8,
+		sigma: 1.0
 	}
 }
