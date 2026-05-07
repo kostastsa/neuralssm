@@ -120,13 +120,15 @@ class ExperimentRunner:
         if sample_gt:
 
             key, subkey = jr.split(key)
-            true_ps = sample_prior(key, props)[0]
+            true_ps = sample_prior(subkey, props)[0]
             true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
+            key, _ = jr.split(key)
+            key, subkey = jr.split(key)
             states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
         else:
-            
+
             key, subkey = jr.split(key)
             xparam = sample_prior(subkey, props)[0]
             true_cps = self.sim.get_ground_truth(sim_desc.state_dim, sim_desc.target_vars)
@@ -140,7 +142,7 @@ class ExperimentRunner:
             key, subkey = jr.split(key)
             states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
-        if plot_sims: 
+        if plot_sims:
 
             fig, ax = plt.subplots(1, 1, figsize=(6, 4))
             ax.plot(states, label='States')
@@ -202,13 +204,15 @@ class ExperimentRunner:
         if sample_gt:
 
             key, subkey = jr.split(key)
-            true_ps = sample_prior(key, props)[0]
+            true_ps = sample_prior(subkey, props)[0]
             true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
-            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+            key, _ = jr.split(key)
+            key, subkey = jr.split(key)
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
         else:
-            
+
             key, subkey = jr.split(key)
             xparam = sample_prior(subkey, props)[0]
             true_cps = self.sim.get_ground_truth(sim_desc.state_dim, sim_desc.target_vars)
@@ -223,7 +227,7 @@ class ExperimentRunner:
             states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
         if plot_sims:
-    
+
             fig, ax = plt.subplots(1, 1, figsize=(6, 4))
             ax.plot(states, label='States')
             ax.plot(observations, label='Observations')
