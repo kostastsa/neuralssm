@@ -32,6 +32,7 @@ from util.train import find_mle, loglik_fn
 from inference.diagnostics.two_sample import sq_maximum_mean_discrepancy as mmd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch, Rectangle
+from matplotlib.lines import Line2D
 import matplotlib_inline # type: ignore
 import scienceplots # type: ignore
 
@@ -1089,6 +1090,64 @@ def lp_histogram(args, show=False):
         fig.savefig(os.path.join(output_dir, 'lp_histogram.png'), dpi=800)
         plt.close(fig)
 
+    def plot_scatter_combined_results(results, output_dir):
+
+        method_style = {
+            'smc-abc': {'color': 'blue',   'marker': 'o'},
+            'mcmc':    {'color': 'red',    'marker': 'x'},
+            'snl':     {'color': 'tomato', 'marker': 's'},
+            't-snl':   {'color': 'green',  'marker': 'D'},
+        }
+        fallback_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        method_labels = get_method_labels(results)
+
+        fig, ax = plt.subplots(2, 2, figsize=(8, 6))
+        axes = ax.ravel()
+
+        for i, (name, label) in enumerate(zip(error_names, error_labels)):
+
+            handles = []
+
+            for method_idx, method_label in enumerate(method_labels):
+
+                style = method_style.get(method_label, {
+                    'color': fallback_colors[method_idx % len(fallback_colors)],
+                    'marker': 'o'
+                })
+                all_xs, all_ys = [], []
+
+                for result in results:
+
+                    if result['label'] != method_label:
+                        continue
+
+                    xs, ys = get_finite_xy(result, name)
+                    pos = ys > 0
+                    all_xs.extend(xs[pos].tolist())
+                    all_ys.extend(ys[pos].tolist())
+
+                if not all_xs:
+                    continue
+
+                axes[i].scatter(all_xs, all_ys, s=12, alpha=0.6,
+                                color=style['color'], marker=style['marker'])
+                handles.append(Line2D([0], [0], marker=style['marker'], color='w',
+                                      markerfacecolor=style['color'],
+                                      markeredgecolor=style['color'], markersize=5,
+                                      label=method_label))
+
+            axes[i].set_yscale('log')
+            axes[i].set_xlabel('-log p(gt)')
+            axes[i].set_ylabel(f'log({label})')
+            axes[i].set_title(f'log({label}) vs -log p(gt)')
+
+            if handles:
+                axes[i].legend(handles=handles, prop={'size': 5})
+
+        fig.tight_layout()
+        fig.savefig(os.path.join(output_dir, 'lp_histogram_scatter.png'), dpi=800)
+        plt.close(fig)
+
     def plot_binned_combined_results(results, output_dir):
 
         all_xs = []
@@ -1220,6 +1279,7 @@ def lp_histogram(args, show=False):
 
             output_dir = os.path.commonpath([result['exp_root'] for result in results])
             plot_combined_results(results, output_dir)
+            plot_scatter_combined_results(results, output_dir)
             plot_binned_combined_results(results, output_dir)
 
     if show:
