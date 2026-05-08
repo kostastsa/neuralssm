@@ -8,7 +8,7 @@ import gc
 import util.plot
 import util.io
 import util.math
-from util.param import sample_prior, to_train_array, get_unravel_fn, tree_from_params, join_trees, params_from_tree
+from util.param import sample_prior, to_train_array, get_unravel_fn, tree_from_params, join_trees, params_from_tree, log_prior
 from util.train import marg_loglik
 from flax import nnx
 from maf.density_models import MAF
@@ -47,7 +47,18 @@ class ExperimentRunner:
         self.exp_dir = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir())
         self.sim = misc.get_simulator(exp_desc.sim)
 
-    def run(self, trial=0, sample_gt=False, plot_sims=False, n_post_samples=1000, key=jr.PRNGKey(0), seed=0):
+    def _sample_gt_params(self, key, props, lp_cutoff):
+        attempts = 0
+        while True:
+            key, subkey = jr.split(key)
+            true_ps = sample_prior(subkey, props)[0]
+            true_cps = to_train_array(true_ps, props)
+            attempts += 1
+            if lp_cutoff is None or -jnp.sum(log_prior(true_cps, props)) >= lp_cutoff:
+                print(f'Accepted gt sample after {attempts} attempt(s)')
+                return key, true_ps, true_cps
+
+    def run(self, trial=0, sample_gt=False, plot_sims=False, n_post_samples=1000, key=jr.PRNGKey(0), seed=0, lp_cutoff=None):
         """
         Runs the experiment.
         :param rng: random number generator to use
@@ -68,20 +79,20 @@ class ExperimentRunner:
         try:
 
             if isinstance(self.exp_desc.inf, ed.ABC_Descriptor):
-                
-                self._run_abc(exp_dir, sample_gt, plot_sims, key, seed)
+
+                self._run_abc(exp_dir, sample_gt, plot_sims, key, seed, lp_cutoff)
 
             elif isinstance(self.exp_desc.inf, ed.PRT_MCMC_Descriptor):
 
-                self._run_prt_mcmc(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed)
+                self._run_prt_mcmc(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff)
 
             elif isinstance(self.exp_desc.inf, ed.SNL_Descriptor):
 
-                self._run_snl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed)
+                self._run_snl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff)
 
             elif isinstance(self.exp_desc.inf, ed.TSNL_Descriptor):
 
-                self._run_tsnl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed)
+                self._run_tsnl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff)
 
             else:
                 
@@ -93,7 +104,7 @@ class ExperimentRunner:
 
             raise
 
-    def _run_abc(self, exp_dir, sample_gt, plot_sims, key, seed):
+    def _run_abc(self, exp_dir, sample_gt, plot_sims, key, seed, lp_cutoff=None):
         """
         Runs the ABC experiments.
         """
@@ -119,9 +130,7 @@ class ExperimentRunner:
         
         if sample_gt:
 
-            key, subkey = jr.split(key)
-            true_ps = sample_prior(subkey, props)[0]
-            true_cps = to_train_array(true_ps, props)
+            key, true_ps, true_cps = self._sample_gt_params(key, props, lp_cutoff)
             true_ps.from_unconstrained(props)
             key, _ = jr.split(key)
             key, subkey = jr.split(key)
@@ -177,7 +186,7 @@ class ExperimentRunner:
             jax.clear_caches()
             gc.collect()
 
-    def _run_prt_mcmc(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed):
+    def _run_prt_mcmc(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff=None):
         """
         Runs the ABC experiments.
         """
@@ -203,9 +212,7 @@ class ExperimentRunner:
 
         if sample_gt:
 
-            key, subkey = jr.split(key)
-            true_ps = sample_prior(subkey, props)[0]
-            true_cps = to_train_array(true_ps, props)
+            key, true_ps, true_cps = self._sample_gt_params(key, props, lp_cutoff)
             true_ps.from_unconstrained(props)
             key, _ = jr.split(key)
             key, subkey = jr.split(key)
@@ -262,7 +269,7 @@ class ExperimentRunner:
             jax.clear_caches()
             gc.collect()
 
-    def _run_snl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed):
+    def _run_snl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff=None):
         """
         Runs the likelihood learner with MCMC.
         """
@@ -291,14 +298,12 @@ class ExperimentRunner:
 
         if sample_gt:
 
-            key, subkey = jr.split(key)
-            true_ps = sample_prior(subkey, props)[0]
+            key, true_ps, true_cps = self._sample_gt_params(key, props, lp_cutoff)
             key, subkey = jr.split(key)
             xparam = sample_prior(subkey, props)[0]
-            true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
             key, subkey = jr.split(key)
-            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
         else:
 
@@ -374,7 +379,7 @@ class ExperimentRunner:
             jax.clear_caches()
             gc.collect()
 
-    def _run_tsnl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed):
+    def _run_tsnl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff=None):
         """
         Runs the likelihood learner with MCMC.
         """
@@ -407,14 +412,12 @@ class ExperimentRunner:
 
         if sample_gt:
 
-            key, subkey = jr.split(key)
-            true_ps = sample_prior(subkey, props)[0]
+            key, true_ps, true_cps = self._sample_gt_params(key, props, lp_cutoff)
             key, subkey = jr.split(key)
             xparam = sample_prior(subkey, props)[0]
-            true_cps = to_train_array(true_ps, props)
             true_ps.from_unconstrained(props)
             key, subkey = jr.split(key)
-            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
         else:
 
@@ -429,7 +432,7 @@ class ExperimentRunner:
             true_ps = params_from_tree(new_tree, param_names, is_constrained_tree)
             true_ps.from_unconstrained(props)
             key, subkey = jr.split(key)
-            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs) 
+            states, observations = ssm.simulate(subkey, true_ps, sim_desc.num_timesteps, inputs)
 
         if plot_sims:
 
