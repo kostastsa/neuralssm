@@ -212,7 +212,7 @@ def run_trials(args):
         raise ValueError('end trial can''t be less than start trial')
 
     exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
-    shared_seed = args.seed == 's'
+    shared_seed = args.seed == 's' 
 
     if args.seed == 'r':
 
@@ -1278,9 +1278,9 @@ def lp_histogram(args, show=False):
         elif results:
 
             output_dir = os.path.commonpath([result['exp_root'] for result in results])
-            plot_combined_results(results, output_dir)
             plot_scatter_combined_results(results, output_dir)
-            plot_binned_combined_results(results, output_dir)
+            # plot_combined_results(results, output_dir)
+            # plot_binned_combined_results(results, output_dir)
 
     if show:
 
