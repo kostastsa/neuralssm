@@ -89,6 +89,7 @@ def parse_args():
     parser_trials.add_argument('start', type=int, help='# of first trial')
     parser_trials.add_argument('end', type=int, help='# of last trial')
     parser_trials.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
+    parser_trials.add_argument('--lp-cutoff', type=float, default=None, help='reject gt samples with -log p(gt) below this value (tail sampling)')
     parser_trials.set_defaults(func=run_trials)
 
     parser_view = subparsers.add_parser('view', help='view results')
@@ -269,7 +270,7 @@ def run_trials(args):
                     trial_seed = seed
                     key, subkey = jr.split(key)
 
-                runner.run(trial=trial, sample_gt=args.sample_gt, plot_sims=True, key=subkey, seed=trial_seed)
+                runner.run(trial=trial, sample_gt=args.sample_gt, plot_sims=True, key=subkey, seed=trial_seed, lp_cutoff=args.lp_cutoff)
 
             except misc.AlreadyExistingExperiment:
 
