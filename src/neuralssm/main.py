@@ -264,13 +264,15 @@ def run_trials(args):
 
                     trial_seed = trial
                     subkey, _ = jr.split(jr.PRNGKey(trial_seed))
+                    inf_key = jr.PRNGKey(int(time.time() * 1000) % (2**31))
 
                 else:
 
                     trial_seed = seed
                     key, subkey = jr.split(key)
+                    inf_key = subkey
 
-                runner.run(trial=trial, sample_gt=args.sample_gt, plot_sims=True, key=subkey, seed=trial_seed, lp_cutoff=args.lp_cutoff)
+                runner.run(trial=trial, sample_gt=args.sample_gt, plot_sims=True, key=subkey, seed=trial_seed, lp_cutoff=args.lp_cutoff, inf_key=inf_key)
 
             except misc.AlreadyExistingExperiment:
 
