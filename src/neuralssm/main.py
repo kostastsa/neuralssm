@@ -865,7 +865,7 @@ def lp_histogram(args, show=False):
     """
 
     error_names = ['kde_error', 'min_error', 'bias', 'sdev']
-    error_labels = ['E_KDE', 'E_min', 'Bias', 'SDev']
+    error_labels = [r'$\mathcal{E}_{KDE}$', r'$\mathcal{E}_{min}$', r'bias', r'st. dev.']
 
     def get_inference_label(inf_desc):
 
@@ -1123,11 +1123,11 @@ def lp_histogram(args, show=False):
                         continue
 
                     xs, ys = get_finite_xy(result, name)
-                    pos = ys > 0
-                    all_xs.extend(xs[pos].tolist())
-                    all_ys.extend(ys[pos].tolist())
+                    all_xs.extend(xs.tolist())
+                    all_ys.extend(ys.tolist())
 
                 if not all_xs:
+
                     continue
 
                 axes[i].scatter(all_xs, all_ys, s=12, alpha=0.6,
@@ -1137,10 +1137,10 @@ def lp_histogram(args, show=False):
                                       markeredgecolor=style['color'], markersize=5,
                                       label=method_label))
 
-            axes[i].set_yscale('log')
-            axes[i].set_xlabel('-log p(gt)')
-            axes[i].set_ylabel(f'log({label})')
-            axes[i].set_title(f'log({label}) vs -log p(gt)')
+            axes[i].set_yscale('linear')
+            axes[i].set_xlabel(r'$-\log p(\theta_0)$')
+            axes[i].set_ylabel(label)
+            axes[i].set_title(f'{label}' + r' vs $-\log p(\theta_0)$')
 
             if handles:
                 axes[i].legend(handles=handles, prop={'size': 5})
