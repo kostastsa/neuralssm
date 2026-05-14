@@ -58,7 +58,7 @@ class ExperimentRunner:
                 print(f'Accepted gt sample after {attempts} attempt(s)')
                 return key, true_ps, true_cps
 
-    def run(self, trial=0, sample_gt=False, plot_sims=False, n_post_samples=1000, key=jr.PRNGKey(0), seed=0, lp_cutoff=None):
+    def run(self, trial=0, sample_gt=False, plot_sims=False, n_post_samples=1000, key=jr.PRNGKey(0), seed=0, lp_cutoff=None, inf_key=None):
         """
         Runs the experiment.
         :param rng: random number generator to use
@@ -78,6 +78,8 @@ class ExperimentRunner:
 
         try:
 
+            inf_key = inf_key if inf_key is not None else key
+
             if isinstance(self.exp_desc.inf, ed.ABC_Descriptor):
 
                 self._run_abc(exp_dir, sample_gt, plot_sims, key, seed, lp_cutoff)
@@ -88,11 +90,11 @@ class ExperimentRunner:
 
             elif isinstance(self.exp_desc.inf, ed.SNL_Descriptor):
 
-                self._run_snl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff)
+                self._run_snl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff, inf_key)
 
             elif isinstance(self.exp_desc.inf, ed.TSNL_Descriptor):
 
-                self._run_tsnl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff)
+                self._run_tsnl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff, inf_key)
 
             else:
                 
@@ -269,7 +271,7 @@ class ExperimentRunner:
             jax.clear_caches()
             gc.collect()
 
-    def _run_snl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff=None):
+    def _run_snl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff=None, inf_key=None):
         """
         Runs the likelihood learner with MCMC.
         """
@@ -334,7 +336,7 @@ class ExperimentRunner:
 
             n_inputs = sim_desc.emission_dim * sim_desc.num_timesteps
             n_cond = to_train_array(xparam, props).shape[0]
-            key_model, key_learner, key = jr.split(key, 3)
+            key_model, key_learner, key = jr.split(inf_key if inf_key is not None else key, 3)
             model = self._create_model(n_inputs, n_cond, key_model)
             learner = nde.SequentialNeuralLikelihood(props, ssm, lag=-1)
             model_desc = self.exp_desc.inf.model
@@ -379,7 +381,7 @@ class ExperimentRunner:
             jax.clear_caches()
             gc.collect()
 
-    def _run_tsnl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff=None):
+    def _run_tsnl(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff=None, inf_key=None):
         """
         Runs the likelihood learner with MCMC.
         """
@@ -449,7 +451,7 @@ class ExperimentRunner:
             n_inputs = sim_desc.emission_dim
             n_params = to_train_array(xparam, props).shape[0]
             n_cond = inf_desc.lag * sim_desc.emission_dim + n_params
-            key_model, key_learner = jr.split(key)
+            key_model, key_learner = jr.split(inf_key if inf_key is not None else key)
             model = self._create_model(n_inputs, n_cond, key_model)
             learner = nde.SequentialNeuralLikelihood(props, ssm, lag=inf_desc.lag)
             model_desc = self.exp_desc.inf.model
