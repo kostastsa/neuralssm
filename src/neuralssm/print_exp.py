@@ -15,6 +15,12 @@ def print_trial(trial_dir):
     except FileNotFoundError:
         print(f'  true_cps  : not found')
 
+    try:
+        lp = load(os.path.join(trial_dir, 'lp'))
+        print(f'  log prior : {lp:.4f}  (-log p = {-lp:.4f})')
+    except FileNotFoundError:
+        print(f'  log prior : not found')
+
     time_txt = os.path.join(trial_dir, 'time.txt')
     time_pkl = os.path.join(trial_dir, 'time_all_rounds.pkl')
     if os.path.exists(time_txt):
@@ -27,6 +33,12 @@ def print_trial(trial_dir):
         print(f'  time      : {total:.2f}s total ({per_round})')
     else:
         print(f'  time      : not found')
+
+    try:
+        num_sims = load(os.path.join(trial_dir, 'num_sims'))
+        print(f'  num_sims  : {num_sims}')
+    except FileNotFoundError:
+        print(f'  num_sims  : not found')
 
     print(f'  {"Metric":<12} {"Value"}')
     print(f'  {"-"*30}')
