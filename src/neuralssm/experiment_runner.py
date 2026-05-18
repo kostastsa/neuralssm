@@ -82,11 +82,11 @@ class ExperimentRunner:
 
             if isinstance(self.exp_desc.inf, ed.ABC_Descriptor):
 
-                self._run_abc(exp_dir, sample_gt, plot_sims, key, seed, lp_cutoff)
+                self._run_abc(exp_dir, sample_gt, plot_sims, key, seed, lp_cutoff, inf_key)
 
             elif isinstance(self.exp_desc.inf, ed.PRT_MCMC_Descriptor):
 
-                self._run_prt_mcmc(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff)
+                self._run_prt_mcmc(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff, inf_key)
 
             elif isinstance(self.exp_desc.inf, ed.SNL_Descriptor):
 
@@ -106,7 +106,7 @@ class ExperimentRunner:
 
             raise
 
-    def _run_abc(self, exp_dir, sample_gt, plot_sims, key, seed, lp_cutoff=None):
+    def _run_abc(self, exp_dir, sample_gt, plot_sims, key, seed, lp_cutoff=None, inf_key=None):
         """
         Runs the ABC experiments.
         """
@@ -168,7 +168,7 @@ class ExperimentRunner:
             abc_runner = abc.SMC(props, ssm)
 
             results = abc_runner.run(
-                key,
+                inf_key if inf_key is not None else key,
                 observations,
                 num_particles=inf_desc.n_samples,
                 qmax=inf_desc.qmax,
@@ -188,7 +188,7 @@ class ExperimentRunner:
             jax.clear_caches()
             gc.collect()
 
-    def _run_prt_mcmc(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff=None):
+    def _run_prt_mcmc(self, exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff=None, inf_key=None):
         """
         Runs the ABC experiments.
         """
@@ -250,7 +250,7 @@ class ExperimentRunner:
             mcmc_runner = mcmc.BPF_MCMC(props, ssm)
 
             results = mcmc_runner.run(
-                key,
+                inf_key if inf_key is not None else key,
                 observations,
                 num_prt = inf_desc.num_prt,
                 num_posterior_samples=n_post_samples,
