@@ -1,4 +1,5 @@
-from jax import numpy as jnp, random as jr, jax
+import jax
+from jax import numpy as jnp, random as jr
 import numpy as onp
 from maf.density_models import MAF
 from functools import partial
@@ -91,13 +92,11 @@ class SequentialNeuralLikelihood:
         key, subkey = jr.split(key)
         self.xparam = sample_prior(subkey, self.props, num_samples)[0]
         self.all_params = []
-        self.time_all_rounds = []
         train_losses = []
         val_losses = []
 
         for r in range(num_rounds):
-            
-            tin = time.time()
+
             logger.write('----------------------------------\n')
             logger.write('Learning MAF likelihood, round {0}\n'.format(r + 1))
             logger.write('----------------------------------\n')
@@ -182,13 +181,12 @@ class SequentialNeuralLikelihood:
             # Sample new parameters using trained likelihood and MCMC
             plogpdf = partial(logdensity_fn, model=model, emissions=observations, props=self.props, lag=self.lag)
             key, subkey = jr.split(key)
-            params_sample, _ = sample_logpdf(key=subkey, learner=self, logdensity_fn=plogpdf, prev_cps = sds[0], num_samples=num_samples, sampler=sampler, num_mcmc_steps=mcmc_steps)
+            params_sample, ps = sample_logpdf(key=subkey, learner=self, logdensity_fn=plogpdf, prev_cps = sds[0], num_samples=num_samples, sampler=sampler, num_mcmc_steps=mcmc_steps)
+            ps.block_until_ready()
+            del ps
             self.all_params.append(params_sample)
-            tout = time.time()
-            self.time_all_rounds.append(tout-tin)
 
-            logger.write('---------time: {:.2f}\n'.format(tout-tin))
-
+            jax.clear_caches()
             gc.collect()
 
         self.all_dists = all_dists

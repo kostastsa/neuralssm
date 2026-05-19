@@ -35,7 +35,6 @@ class BPF_MCMC:
         self.props = props
         self.ssm = ssm
         self.xparam = None
-        self.time = None
 
     def bpf(self,
             params: ParamSSM,
@@ -155,8 +154,6 @@ class BPF_MCMC:
         logger.write('-----------------------\n')
         logger.write('Sampling BPF-MCMC chain\n')
         logger.write('-----------------------\n')
-        tin = time.time()
-
         key, subkey = jr.split(key)
         initial_param = sample_prior(subkey, self.props, 1)[0]
         initial_cond_params = to_train_array(initial_param, self.props)
@@ -172,7 +169,4 @@ class BPF_MCMC:
         ### Run inference loop
         mcmc_samples, logpdfs = mcmc_inference_loop(key, bpf_kernel, bpf_initial_state, mcmc_steps)
 
-        tout = time.time()
-        self.time = tout-tin
-        
         return mcmc_samples[-num_posterior_samples:], logpdfs[-num_posterior_samples:]

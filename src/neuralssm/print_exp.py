@@ -21,17 +21,10 @@ def print_trial(trial_dir):
     except FileNotFoundError:
         print(f'  log prior : not found')
 
-    time_txt = os.path.join(trial_dir, 'time.txt')
-    time_pkl = os.path.join(trial_dir, 'time_all_rounds.pkl')
-    if os.path.exists(time_txt):
-        total = float(open(time_txt).read().strip())
-        print(f'  time      : {total:.2f}s (total)')
-    elif os.path.exists(time_pkl):
-        rounds = load(os.path.join(trial_dir, 'time_all_rounds'))
-        total = sum(rounds)
-        per_round = ', '.join(f'{t:.2f}s' for t in rounds)
-        print(f'  time      : {total:.2f}s total ({per_round})')
-    else:
+    try:
+        total = load(os.path.join(trial_dir, 'trial_time'))
+        print(f'  time      : {total:.2f}s')
+    except FileNotFoundError:
         print(f'  time      : not found')
 
     try:

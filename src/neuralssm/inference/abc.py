@@ -22,7 +22,6 @@ class SMC:
 
         self.props = props
         self.ssm = ssm
-        self.time_all_rounds = []
 
     def run(self,
             key,
@@ -164,7 +163,6 @@ class SMC:
 
 
         def _step(carry):
-            tin = time.time()
             particles, weights, cov, key, log_ess, count_sims, acc_dist = carry
             chol = jnp.linalg.cholesky(cov)
             log_ess_min = jnp.log(ess_min)
@@ -223,10 +221,6 @@ class SMC:
             count_sims += jnp.sum(counts)
             acc_dist = 1.0 * jnp.max(acc_dists)
             carry = (new_particles, new_weights, cov, key, log_ess, count_sims, acc_dist)
-            tout = time.time()
-            self.time_all_rounds.append(tout-tin)
-            logger.write('--------- time: {:.2f}\n'.format(tout-tin))
-
             return carry, (new_particles, new_weights, log_ess, count_sims, acc_dist)
 
         key, subkey = jr.split(key)
