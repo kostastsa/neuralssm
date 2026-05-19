@@ -43,14 +43,14 @@ class SMC:
 
         def cond_fun(carry):
 
-            _, _, _, _, _, _, _, q = carry
+            _, _, _, _, _, _, _, q, _, _, _ = carry
 
             return q < qmax
 
 
         def _step(carry):
 
-            particles, weights, cov, key, log_ess, count_sims, eps, _ = carry
+            particles, weights, cov, key, log_ess, count_sims, eps, _, r, counts_per_round, q_per_round = carry
             chol = jnp.linalg.cholesky(cov)
             log_ess_min = jnp.log(ess_min)
             log_n_particles = jnp.log(num_particles)
@@ -106,14 +106,20 @@ class SMC:
 
             # Adapt covariance
             cov = 2.0 *jnp.cov(new_particles.T, aweights=new_weights).reshape((prt_dim, prt_dim))
-            count_sims += jnp.sum(counts)
+            round_counts = jnp.sum(counts)
+            count_sims += round_counts
 
             q = find_quantile(particles, new_particles, sigma)
             acc_dists = jnp.sort(acc_dists)
             q_index = jnp.array([q * len(acc_dists)])
             q_index = q_index.astype(int)
-            eps = acc_dists[q_index[0]]                    
-            carry = (new_particles, new_weights, cov, key, log_ess, count_sims, eps, q)
+            eps = acc_dists[q_index[0]]
+
+            counts_per_round = lax.dynamic_update_slice(counts_per_round, jnp.array([round_counts]), jnp.array([r]))
+            q_per_round      = lax.dynamic_update_slice(q_per_round,      jnp.array([q]),            jnp.array([r]))
+            r = r + 1
+
+            carry = (new_particles, new_weights, cov, key, log_ess, count_sims, eps, q, r, counts_per_round, q_per_round)
 
             debug.print('count_sims------- {x}',x=count_sims)
             debug.print('q---------------- {x}',x=round(q,2))
@@ -129,13 +135,16 @@ class SMC:
 
         key, subkey
         eps_init = get_eps_init(key, k, observations, self.ssm, self.props, num_timesteps, num_particles)
-        carry = (init_particles, init_weights, init_cov, key, 0.0, 0, eps_init, 0.0)
-        particles, weights, cov, key, log_ess, count_sims, eps, q  = lax.while_loop(cond_fun, _step, carry)
-        is_nan = jnp.isnan(particles).any()
+        max_rounds = 200
+        carry = (init_particles, init_weights, init_cov, key, 0.0, 0, eps_init, 0.0,
+                 0, jnp.zeros(max_rounds, dtype=jnp.int32), jnp.zeros(max_rounds))
+        particles, weights, cov, key, log_ess, count_sims, eps, q, r, counts_per_round, q_per_round = lax.while_loop(cond_fun, _step, carry)
+
+        n = int(r)
 
         gc.collect()
 
-        return particles, weights, count_sims
+        return particles, weights, count_sims, counts_per_round[:n], q_per_round[:n]
     
     def run2(self,
             key,
