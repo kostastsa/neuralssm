@@ -16,6 +16,7 @@ import os
 import time
 import subprocess
 import numpy as onp
+from tqdm import tqdm
 
 from experiment_runner import ExperimentRunner
 import experiment_descriptor as ed
@@ -688,7 +689,7 @@ def eval_and_plot_errors(args, show=False):
 
                     if isinstance(inf_desc, ed.ABC_Descriptor):
 
-                        cps, _, counts = util.io.load(os.path.join(exp_dir, 'results'))
+                        cps, _, counts, _, _ = util.io.load(os.path.join(exp_dir, 'results'))
                         kderr, minerr, bias, ang_bias, sdev, (mds, amd), (ads, apd), (maxds, amxd) = compute_all_errors(cps, true_cps)
                         num_simulations = counts * sim_desc.num_timesteps
 
@@ -911,11 +912,11 @@ def lp_histogram(args, show=False):
         exp_root = os.path.join(misc.get_root(), 'experiments', exp_desc.get_dir(), 'sample_gt_True')
         trial_ids = []
         log_probs = []
+        num_sims_list = []
         errors = {name: [] for name in error_names}
 
-        for trial in range(args.start, args.end + 1):
+        for trial in tqdm(range(args.start, args.end + 1), desc='Trials'):
 
-            print(f'Working on trial {trial}')
             exp_dir = os.path.join(exp_root, str(trial))
 
             try:
@@ -924,7 +925,7 @@ def lp_histogram(args, show=False):
 
                 if isinstance(inf_desc, ed.ABC_Descriptor):
 
-                    cps, _, _ = util.io.load(os.path.join(exp_dir, 'results'))
+                    cps, _, _, _, _ = util.io.load(os.path.join(exp_dir, 'results'))
 
                 elif isinstance(inf_desc, ed.BPF_MCMC_Descriptor):
 
@@ -941,6 +942,7 @@ def lp_histogram(args, show=False):
 
                 kderr, minerr, bias, _, sdev, _, _, _ = compute_all_errors(cps, true_cps)
                 lp = jnp.sum(log_prior(true_cps, props))
+                util.io.save(float(lp), os.path.join(exp_dir, 'lp'))
 
                 trial_ids.append(trial)
                 log_probs.append(float(lp))
@@ -948,6 +950,11 @@ def lp_histogram(args, show=False):
                 errors['min_error'].append(float(minerr))
                 errors['bias'].append(float(bias))
                 errors['sdev'].append(float(sdev))
+
+                try:
+                    num_sims_list.append(float(util.io.load(os.path.join(exp_dir, 'num_sims'))))
+                except FileNotFoundError:
+                    num_sims_list.append(float('nan'))
 
             except FileNotFoundError:
 
@@ -969,6 +976,7 @@ def lp_histogram(args, show=False):
             'trials': trial_ids,
             'log_probs': log_probs,
             'neg_log_probs': neg_log_probs,
+            'num_sims': onp.array(num_sims_list),
             'errors': errors
         }
 
@@ -1139,7 +1147,7 @@ def lp_histogram(args, show=False):
                                       markeredgecolor=style['color'], markersize=5,
                                       label=method_label))
 
-            axes[i].set_yscale('linear')
+            axes[i].set_yscale('symlog')
             axes[i].set_xlabel(r'$-\log p(\theta_0)$')
             axes[i].set_ylabel(label)
             axes[i].set_title(f'{label}' + r' vs $-\log p(\theta_0)$')
@@ -1149,6 +1157,101 @@ def lp_histogram(args, show=False):
 
         fig.tight_layout()
         fig.savefig(os.path.join(output_dir, 'lp_histogram_scatter.png'), dpi=800)
+        plt.close(fig)
+
+    def plot_num_sims_pdf(results, output_dir):
+
+        method_style = {
+            'smc-abc': {'color': 'blue',   'label': 'SMC-ABC'},
+            'mcmc':    {'color': 'red',    'label': 'BPF-MCMC'},
+            'snl':     {'color': 'tomato', 'label': 'SNL'},
+            't-snl':   {'color': 'green',  'label': 'T-SNL'},
+        }
+        fallback_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        method_labels = get_method_labels(results)
+
+        fig, ax = plt.subplots(1, 1, figsize=(5, 3))
+
+        for method_idx, method_label in enumerate(method_labels):
+
+            vals = []
+
+            for result in results:
+
+                if result['label'] != method_label:
+                    continue
+
+                ns = result['num_sims']
+                vals.extend(ns[onp.isfinite(ns)].tolist())
+
+            if not vals:
+                continue
+
+            vals = onp.asarray(vals)
+            style = method_style.get(method_label, {
+                'color': fallback_colors[method_idx % len(fallback_colors)],
+                'label': method_label
+            })
+
+            ax.hist(vals, bins='auto', color=style['color'], label=style['label'],
+                    alpha=0.5, edgecolor=style['color'], linewidth=0.5)
+
+        ax.set_xlabel('log number of simulations')
+        ax.set_ylabel('count')
+        ax.legend(prop={'size': 7})
+        fig.tight_layout()
+        fig.savefig(os.path.join(output_dir, 'lp_histogram_num_sims_pdf.png'), dpi=800)
+        plt.close(fig)
+
+    def plot_num_sims_scatter(results, output_dir):
+
+        method_style = {
+            'smc-abc': {'color': 'blue',   'marker': 'o'},
+            'mcmc':    {'color': 'red',    'marker': 'x'},
+            'snl':     {'color': 'tomato', 'marker': 's'},
+            't-snl':   {'color': 'green',  'marker': 'D'},
+        }
+        fallback_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        method_labels = get_method_labels(results)
+
+        fig, ax = plt.subplots(1, 1, figsize=(5, 3))
+        handles = []
+
+        for method_idx, method_label in enumerate(method_labels):
+
+            style = method_style.get(method_label, {
+                'color': fallback_colors[method_idx % len(fallback_colors)],
+                'marker': 'o'
+            })
+            all_xs, all_ys = [], []
+
+            for result in results:
+
+                if result['label'] != method_label:
+                    continue
+
+                nlp = onp.asarray(result['neg_log_probs'])
+                ns = onp.asarray(result['num_sims'])
+                finite = onp.isfinite(nlp) & onp.isfinite(ns)
+                all_xs.extend(nlp[finite].tolist())
+                all_ys.extend(ns[finite].tolist())
+
+            if not all_xs:
+                continue
+
+            ax.scatter(all_xs, all_ys, s=12, alpha=0.6,
+                       color=style['color'], marker=style['marker'])
+            handles.append(Line2D([0], [0], marker=style['marker'], color='w',
+                                  markerfacecolor=style['color'],
+                                  markeredgecolor=style['color'], markersize=5,
+                                  label=method_label))
+
+        ax.set_xlabel(r'$-\log p(\theta_0)$')
+        ax.set_ylabel('log number of simulations')
+        if handles:
+            ax.legend(handles=handles, prop={'size': 7})
+        fig.tight_layout()
+        fig.savefig(os.path.join(output_dir, 'lp_histogram_num_sims_scatter.png'), dpi=800)
         plt.close(fig)
 
     def plot_binned_combined_results(results, output_dir):
@@ -1282,6 +1385,8 @@ def lp_histogram(args, show=False):
 
             output_dir = os.path.commonpath([result['exp_root'] for result in results])
             plot_scatter_combined_results(results, output_dir)
+            plot_num_sims_pdf(results, output_dir)
+            plot_num_sims_scatter(results, output_dir)
             # plot_combined_results(results, output_dir)
             # plot_binned_combined_results(results, output_dir)
 

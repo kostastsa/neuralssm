@@ -99,42 +99,24 @@ class ExperimentViewer:
 
         if isinstance(inf_desc, ed.SMC_ABC_Descriptor):
 
-            all_samples, all_weights, all_eps, all_log_ess, all_n_sims, avg_acc_dists, is_nan = results
+            particles, weights, count_sims, counts_per_round, q_per_round = results
 
-            if is_nan:
-                print('ABORT: NaNs encountered')
-                return None
+            # posterior histogram (final round)
+            fig = util.plot.plot_hist_marginals(particles, weights, lims=self.sim.get_disp_lims(), gt=true_cps)
+            fig.suptitle('SMC ABC, q = {0:.2f}'.format(float(q_per_round[-1])))
 
-            # posterior histograms
-            skip = int(max(1, len(all_eps) / 5))
-            for samples, weights, eps in zip(all_samples[:-1:skip], all_weights[:-1:skip], all_eps[:-1:skip]):
-                fig = util.plot.plot_hist_marginals(samples, weights, lims=self.sim.get_disp_lims(), gt=true_cps)
-                fig.suptitle('SMC ABC, eps = {0:.2}'.format(eps))
-            fig = util.plot.plot_hist_marginals(all_samples[-1], all_weights[-1], lims=self.sim.get_disp_lims(), gt=true_cps)
-            fig.suptitle('SMC ABC, eps = {0:.2}'.format(all_eps[-1]))
-
-            # effective sample size vs iteration
+            # sims per round vs q
             fig, ax = plt.subplots(1, 1)
-            ax.plot(np.exp(all_log_ess) * 100, ':o')
-            ax.plot(ax.get_xlim(), 0.5 * np.ones(2) * 100, 'r--')
-            ax.set_xlabel('iteration')
-            ax.set_ylabel('effective sample size [%]')
+            ax.plot(q_per_round, counts_per_round, ':o')
+            ax.set_xlabel('q')
+            ax.set_ylabel('num_sims per round')
             ax.set_title('SMC ABC')
 
-            # sims vs eps
+            # q per round
             fig, ax = plt.subplots(1, 1)
-            ax.plot(all_eps, all_n_sims, ':o')
-            ax.set_xlabel('eps')
-            ax.set_ylabel('num_sims')
-            ax.set_title('SMC ABC')
-
-            # acc_dist vs vs eps
-            fig, ax = plt.subplots(1, 1)
-            ax.plot(all_eps, ':o', label='eps')
-            ax.plot(avg_acc_dists, ':o', label='dist')
-            ax.legend()
-            ax.set_xlabel('iteration')
-            ax.set_ylabel('distance')
+            ax.plot(q_per_round, ':o')
+            ax.set_xlabel('round')
+            ax.set_ylabel('q')
             ax.set_title('SMC ABC')
 
             fig_dir = os.path.join(exp_dir, 'figures')
