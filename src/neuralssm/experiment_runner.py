@@ -80,6 +80,8 @@ class ExperimentRunner:
 
             inf_key = inf_key if inf_key is not None else key
 
+            t_start = time.perf_counter()
+
             if isinstance(self.exp_desc.inf, ed.ABC_Descriptor):
 
                 self._run_abc(exp_dir, sample_gt, plot_sims, key, seed, lp_cutoff, inf_key)
@@ -97,8 +99,11 @@ class ExperimentRunner:
                 self._run_tsnl(exp_dir, sample_gt, plot_sims, n_post_samples, key, seed, lp_cutoff, inf_key)
 
             else:
-                
+
                 raise TypeError('unknown inference descriptor')
+
+            t_end = time.perf_counter()
+            util.io.save(t_end - t_start, os.path.join(exp_dir, 'trial_time'))
 
         except:
 
@@ -178,7 +183,6 @@ class ExperimentRunner:
 
             util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
-            util.io.save(abc_runner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
             util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'exp_desc.txt'))
             util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
@@ -261,7 +265,6 @@ class ExperimentRunner:
                 
             util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(results, os.path.join(exp_dir, 'results'))
-            util.io.save_txt(str(mcmc_runner.time), os.path.join(exp_dir, 'time.txt'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
             util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'exp_desc.txt'))
             util.io.save_txt(inspect.getsource(param_info), os.path.join(exp_dir, 'param_info.txt'))
@@ -369,7 +372,6 @@ class ExperimentRunner:
             util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))
             util.io.save(learner.losses, os.path.join(exp_dir, 'losses'))
             util.io.save((posterior_sample, posterior_cond_sample), os.path.join(exp_dir, 'posterior'))
-            util.io.save(learner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples), os.path.join(exp_dir, 'all_dists'))
             util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'exp_desc.txt'))
             util.io.save_txt(str(seed), os.path.join(exp_dir, 'seed.txt'))
@@ -484,7 +486,6 @@ class ExperimentRunner:
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
             util.io.save(learner.all_emissions, os.path.join(exp_dir, 'all_emissions'))
             util.io.save(learner.all_cond_params, os.path.join(exp_dir, 'all_cond_params'))
-            util.io.save(learner.time_all_rounds, os.path.join(exp_dir, 'time_all_rounds'))
             util.io.save(learner.all_dists.reshape(inf_desc.n_rounds, inf_desc.n_samples), os.path.join(exp_dir, 'all_dists'))
             util.io.save((posterior_sample, posterior_cond_sample), os.path.join(exp_dir, 'posterior'))
             util.io.save_txt(self.exp_desc.pprint(), os.path.join(exp_dir, 'exp_desc.txt'))
