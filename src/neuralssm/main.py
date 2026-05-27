@@ -128,6 +128,14 @@ def parse_args():
     parser_lp_histogram.add_argument('--lp-bins', type=int, default=5, help='# of -log p(gt) bins for method-wise boxplots')
     parser_lp_histogram.set_defaults(func=lp_histogram)
 
+    parser_rank = subparsers.add_parser('rank_histograms', help='plot SBC rank-statistics histograms averaged over trials for each method')
+    parser_rank.add_argument('sample_gt', type=str2bool, help='A boolean flag (default: True)')
+    parser_rank.add_argument('start', type=int, help='# of first trial')
+    parser_rank.add_argument('end', type=int, help='# of last trial')
+    parser_rank.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
+    parser_rank.add_argument('--bins', type=int, default=12, help='number of histogram bins (default: 12)')
+    parser_rank.set_defaults(func=rank_histograms)
+
     parser_gen_emissions = subparsers.add_parser('gen_emissions', help='generate emissions')
     parser_gen_emissions.add_argument('sample_gt', type=str2bool, help="A boolean flag (default: True)")
     parser_gen_emissions.add_argument('start', type=int, help='# of first trial')
@@ -913,6 +921,7 @@ def lp_histogram(args, show=False):
         trial_ids = []
         log_probs = []
         num_sims_list = []
+        trial_time_list = []
         errors = {name: [] for name in error_names}
 
         for trial in tqdm(range(args.start, args.end + 1), desc='Trials'):
@@ -956,6 +965,11 @@ def lp_histogram(args, show=False):
                 except FileNotFoundError:
                     num_sims_list.append(float('nan'))
 
+                try:
+                    trial_time_list.append(float(util.io.load(os.path.join(exp_dir, 'trial_time'))))
+                except FileNotFoundError:
+                    trial_time_list.append(float('nan'))
+
             except FileNotFoundError:
 
                 print('ERROR FILE NOT FOUND')
@@ -977,6 +991,7 @@ def lp_histogram(args, show=False):
             'log_probs': log_probs,
             'neg_log_probs': neg_log_probs,
             'num_sims': onp.array(num_sims_list),
+            'trial_time': onp.array(trial_time_list),
             'errors': errors
         }
 
@@ -1170,11 +1185,17 @@ def lp_histogram(args, show=False):
         fallback_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
         method_labels = get_method_labels(results)
 
-        fig, ax = plt.subplots(1, 1, figsize=(5, 3))
+        fig, (ax_ns, ax_time) = plt.subplots(2, 1, figsize=(5, 6))
 
         for method_idx, method_label in enumerate(method_labels):
 
-            vals = []
+            style = method_style.get(method_label, {
+                'color': fallback_colors[method_idx % len(fallback_colors)],
+                'label': method_label
+            })
+
+            # --- num_sims panel ---
+            ns_vals = []
 
             for result in results:
 
@@ -1182,23 +1203,37 @@ def lp_histogram(args, show=False):
                     continue
 
                 ns = result['num_sims']
-                vals.extend(ns[onp.isfinite(ns)].tolist())
+                ns_vals.extend(ns[onp.isfinite(ns)].tolist())
 
-            if not vals:
-                continue
+            if ns_vals:
+                ns_vals = onp.asarray(ns_vals)
+                ax_ns.hist(ns_vals, bins='auto', color=style['color'], label=style['label'],
+                           alpha=0.5, edgecolor=style['color'], linewidth=0.5)
 
-            vals = onp.asarray(vals)
-            style = method_style.get(method_label, {
-                'color': fallback_colors[method_idx % len(fallback_colors)],
-                'label': method_label
-            })
+            # --- trial_time panel ---
+            time_vals = []
 
-            ax.hist(vals, bins='auto', color=style['color'], label=style['label'],
-                    alpha=0.5, edgecolor=style['color'], linewidth=0.5)
+            for result in results:
 
-        ax.set_xlabel('log number of simulations')
-        ax.set_ylabel('count')
-        ax.legend(prop={'size': 7})
+                if result['label'] != method_label:
+                    continue
+
+                tt = result['trial_time']
+                time_vals.extend(tt[onp.isfinite(tt)].tolist())
+
+            if time_vals:
+                time_vals = onp.asarray(time_vals)
+                ax_time.hist(time_vals, bins='auto', color=style['color'], label=style['label'],
+                             alpha=0.5, edgecolor=style['color'], linewidth=0.5)
+
+        ax_ns.set_xlabel('log number of simulations')
+        ax_ns.set_ylabel('count')
+        ax_ns.legend(prop={'size': 7})
+
+        ax_time.set_xlabel('trial time (s)')
+        ax_time.set_ylabel('count')
+        ax_time.legend(prop={'size': 7})
+
         fig.tight_layout()
         fig.savefig(os.path.join(output_dir, 'lp_histogram_num_sims_pdf.png'), dpi=800)
         plt.close(fig)
@@ -1252,6 +1287,67 @@ def lp_histogram(args, show=False):
             ax.legend(handles=handles, prop={'size': 7})
         fig.tight_layout()
         fig.savefig(os.path.join(output_dir, 'lp_histogram_num_sims_scatter.png'), dpi=800)
+        plt.close(fig)
+
+    def plot_trial_time_boxplots(results, output_dir):
+
+        method_style = {
+            'smc-abc': {'color': 'blue',   'label': 'SMC-ABC'},
+            'mcmc':    {'color': 'red',    'label': 'BPF-MCMC'},
+            'snl':     {'color': 'tomato', 'label': 'SNL'},
+            't-snl':   {'color': 'green',  'label': 'T-SNL'},
+        }
+        fallback_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        method_labels = get_method_labels(results)
+
+        data = []
+        labels = []
+        colors = []
+
+        for method_idx, method_label in enumerate(method_labels):
+
+            vals = []
+
+            for result in results:
+
+                if result['label'] != method_label:
+                    continue
+
+                tt = result['trial_time']
+                vals.extend(tt[onp.isfinite(tt)].tolist())
+
+            if not vals:
+                continue
+
+            style = method_style.get(method_label, {
+                'color': fallback_colors[method_idx % len(fallback_colors)],
+                'label': method_label
+            })
+            data.append(onp.asarray(vals))
+            labels.append(style['label'])
+            colors.append(style['color'])
+
+        if not data:
+            return
+
+        fig, ax = plt.subplots(1, 1, figsize=(max(3, len(data) * 1.2), 4))
+
+        bp = ax.boxplot(data, patch_artist=True, showfliers=True)
+
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.5)
+
+        for median in bp['medians']:
+            median.set_color('black')
+
+        ax.set_xticks(range(1, len(labels) + 1))
+        ax.set_xticklabels(labels)
+        ax.set_ylabel('trial time (s)')
+        ax.set_title('Runtime per inference method')
+
+        fig.tight_layout()
+        fig.savefig(os.path.join(output_dir, 'lp_histogram_trial_time_boxplots.png'), dpi=800)
         plt.close(fig)
 
     def plot_binned_combined_results(results, output_dir):
@@ -1387,11 +1483,267 @@ def lp_histogram(args, show=False):
             plot_scatter_combined_results(results, output_dir)
             plot_num_sims_pdf(results, output_dir)
             plot_num_sims_scatter(results, output_dir)
+            plot_trial_time_boxplots(results, output_dir)
             # plot_combined_results(results, output_dir)
             # plot_binned_combined_results(results, output_dir)
 
     if show:
 
+        plt.show()
+
+
+def rank_histograms(args, show=False):
+    """
+    Computes simulation-based calibration (SBC) rank-statistics histograms
+    for all four inference methods and saves a single 4-panel figure to the
+    simulator-level experiments directory.
+
+    For each trial, the rank of the ground-truth parameter value inside the
+    inferred posterior is computed as:
+
+        rank = sum(posterior_samples < true_cp)
+
+    Ranks are normalised to [0, 1] across trials.  A well-calibrated posterior
+    produces a uniform histogram; over/underconfidence appear as U- or ∩-shapes.
+
+    Data is accumulated across all files passed.  Methods that have no data
+    are shown as greyed-out empty panels so the figure always has 4 rows.
+
+    Usage:
+        python main.py rank_histograms <sample_gt> <start> <end> <files...>
+        python main.py rank_histograms True 1 100 abc.txt mcmc.txt snl.txt tsnl.txt
+    """
+
+    # ── canonical keys and labels (fixed order, always 4 rows) ───────────────
+    ALG_KEYS   = ['abc', 'mcmc', 'snl', 'tsnl']
+    ALG_LABELS = {
+        'abc':  'SMC-ABC',
+        'mcmc': 'BPF-MCMC',
+        'snl':  'SNL',
+        'tsnl': 'T-SNL',
+    }
+
+    n_bins = getattr(args, 'bins', 12)
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _get_alg_key(inf_desc):
+        """Map any inference descriptor to one of the 4 canonical string keys."""
+        # Check TSNL before SNL – both are independent subclasses of
+        # InferenceDescriptor, but being explicit avoids future surprises.
+        if isinstance(inf_desc, ed.TSNL_Descriptor):
+            return 'tsnl'
+        elif isinstance(inf_desc, ed.SNL_Descriptor):
+            return 'snl'
+        elif isinstance(inf_desc, ed.ABC_Descriptor):
+            # covers SMC_ABC_Descriptor (subclass of ABC_Descriptor)
+            return 'abc'
+        elif isinstance(inf_desc, ed.PRT_MCMC_Descriptor):
+            # covers BPF_MCMC_Descriptor (subclass of PRT_MCMC_Descriptor)
+            return 'mcmc'
+        return None
+
+    def _load_posterior(inf_desc, exp_dir):
+        """Return posterior constrained-parameter samples as a jnp array."""
+        if isinstance(inf_desc, (ed.SNL_Descriptor, ed.TSNL_Descriptor)):
+            _, cps = util.io.load(os.path.join(exp_dir, 'posterior'))
+        elif isinstance(inf_desc, ed.ABC_Descriptor):
+            cps, *_ = util.io.load(os.path.join(exp_dir, 'results'))
+        elif isinstance(inf_desc, ed.PRT_MCMC_Descriptor):
+            cps, _ = util.io.load(os.path.join(exp_dir, 'results'))
+        else:
+            raise ValueError(f'Unknown inference descriptor: {type(inf_desc)}')
+        return jnp.asarray(cps)
+
+    def _compute_ranks_per_dim(all_samples, all_true_cps):
+        """
+        Compute per-parameter-dimension normalised rank statistics.
+
+        For each trial and each parameter dimension d:
+            rank_d = sum(samples[:, d] < true_cp[d])
+
+        Parameters
+        ----------
+        all_samples  : list of jnp arrays of shape [num_samples, num_params]
+                       (or [num_samples] for a single parameter)
+        all_true_cps : list of jnp arrays of shape [num_params]
+                       (or scalar for a single parameter)
+
+        Returns
+        -------
+        ranks_per_dim : list of length num_params; each element is a
+                        jnp array of shape [num_trials] with values in [0, 1].
+        """
+        # Infer num_params from the first trial
+        s0 = jnp.asarray(all_samples[0])
+        t0 = jnp.asarray(all_true_cps[0])
+        if s0.ndim == 2:
+            num_params = s0.shape[1]
+        elif t0.ndim >= 1 and t0.shape[0] > 1:
+            num_params = t0.shape[0]   # 1-D samples broadcast over params
+        else:
+            num_params = 1
+
+        ranks_per_dim = []
+        for d in range(num_params):
+            trial_ranks = []
+            for samples, true_cp in zip(all_samples, all_true_cps):
+                s = jnp.asarray(samples)
+                t = jnp.asarray(true_cp)
+                # extract d-th column if 2-D, otherwise use the whole array
+                s_d = s[:, d] if s.ndim == 2 else s
+                t_d = t[d]   if t.ndim >= 1 else t
+                trial_ranks.append(float(jnp.sum(s_d < t_d)))
+            r = jnp.array(trial_ranks)
+            max_r = jnp.max(r)
+            if max_r > 0.0:
+                r = r / max_r
+            ranks_per_dim.append(r)
+
+        return ranks_per_dim   # length == num_params
+
+    # ── accumulate data across ALL files ─────────────────────────────────────
+    method_data = {k: {'samples': [], 'true_cps': []} for k in ALG_KEYS}
+    sim_dir = None   # set from the first descriptor seen; used for save path
+
+    n_trials = args.end - args.start + 1
+
+    file_iter = tqdm(args.files, desc='Files', unit='file',
+                     disable=len(args.files) == 1)
+
+    for file in file_iter:
+
+        exp_descs = ed.parse(util.io.load_txt(file))
+
+        desc_iter = tqdm(exp_descs, desc='Experiments', unit='exp',
+                         leave=False)
+
+        for exp_desc in desc_iter:
+
+            alg_key = _get_alg_key(exp_desc.inf)
+            if alg_key is None:
+                print(f'[rank_histograms] Unknown inf type {type(exp_desc.inf).__name__}, skipping.')
+                continue
+
+            label = ALG_LABELS.get(alg_key, alg_key)
+            desc_iter.set_postfix(method=label)
+
+            # record the simulator-level directory from the first descriptor seen
+            if sim_dir is None:
+                sim_dir = os.path.join(misc.get_root(), 'experiments',
+                                       exp_desc.sim.get_dir())
+
+            exp_root = os.path.join(misc.get_root(), 'experiments',
+                                    exp_desc.get_dir(),
+                                    f'sample_gt_{args.sample_gt}')
+
+            n_loaded = 0
+            n_missing = 0
+            trial_iter = tqdm(range(args.start, args.end + 1),
+                              desc=f'  {label} trials', unit='trial',
+                              total=n_trials, leave=False)
+
+            for trial in trial_iter:
+
+                exp_dir = os.path.join(exp_root, str(trial))
+
+                try:
+                    samples          = _load_posterior(exp_desc.inf, exp_dir)
+                    (_, true_cps), _ = util.io.load(os.path.join(exp_dir, 'gt'))
+                    method_data[alg_key]['samples'].append(samples)
+                    method_data[alg_key]['true_cps'].append(jnp.asarray(true_cps))
+                    n_loaded += 1
+
+                except FileNotFoundError:
+                    n_missing += 1
+                    continue
+
+                trial_iter.set_postfix(loaded=n_loaded, missing=n_missing)
+
+            tqdm.write(f'[rank_histograms] {label}: '
+                       f'{n_loaded} trials loaded, {n_missing} missing.')
+
+    if sim_dir is None:
+        print('[rank_histograms] No experiment descriptors found in the given files.')
+        return
+
+    # ── determine num_params from first available sample ─────────────────────
+    num_params = 1
+    for key in ALG_KEYS:
+        if method_data[key]['samples']:
+            s0 = jnp.asarray(method_data[key]['samples'][0])
+            t0 = jnp.asarray(method_data[key]['true_cps'][0])
+            if s0.ndim == 2:
+                num_params = s0.shape[1]
+            elif t0.ndim >= 1 and t0.shape[0] > 1:
+                num_params = t0.shape[0]
+            break
+
+    # ── build figure: 4 rows (methods) × num_params columns (dimensions) ─────
+    fig, axes = plt.subplots(4, num_params,
+                             figsize=(2.5 * num_params, 3),
+                             squeeze=False)
+
+    # column titles: "param 1", "param 2", … (only when there is >1 parameter)
+    if num_params > 1:
+        for d in range(num_params):
+            axes[0, d].set_title(f'param {d + 1}', fontsize=6)
+
+    for row, key in enumerate(ALG_KEYS):
+
+        data  = method_data[key]
+        n     = len(data['samples'])
+        label = ALG_LABELS[key]
+
+        if n > 0:
+            ranks_per_dim = _compute_ranks_per_dim(data['samples'], data['true_cps'])
+            for d in range(num_params):
+                ax = axes[row, d]
+                ranks   = ranks_per_dim[d]
+                weights = onp.array(jnp.ones_like(ranks) / n)
+                ax.hist(ranks, bins=n_bins, edgecolor='black', color='grey',
+                        weights=weights)
+                ax.set_xlim(0.0, 1.1)
+                ax.tick_params(axis='y', labelsize=5)
+                ax.tick_params(axis='x', labelsize=5)
+                # y-label only on first column; n= only on first column
+                if d == 0:
+                    ax.set_ylabel(label, fontsize=7)
+                    ax.set_title((axes[0, 0].get_title() or '') +
+                                 (f'  n={n}' if num_params == 1 else ''),
+                                 fontsize=5, pad=1)
+                else:
+                    ax.set_yticklabels([])
+                if row != 3:
+                    ax.set_xticklabels([])
+        else:
+            for d in range(num_params):
+                ax = axes[row, d]
+                ax.text(0.5, 0.5, 'no data', ha='center', va='center',
+                        transform=ax.transAxes, fontsize=6, color='grey',
+                        style='italic')
+                ax.set_xlim(0.0, 1.1)
+                ax.tick_params(axis='y', labelsize=5)
+                ax.tick_params(axis='x', labelsize=5)
+                if d == 0:
+                    ax.set_ylabel(label, fontsize=7)
+                else:
+                    ax.set_yticklabels([])
+                if row != 3:
+                    ax.set_xticklabels([])
+
+    for d in range(num_params):
+        axes[3, d].set_xlabel('rank', fontsize=7)
+    fig.tight_layout()
+
+    # ── save to simulator-level directory (never inside a method subfolder) ───
+    out_dir  = os.path.join(sim_dir, f'sample_gt_{args.sample_gt}')
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, 'rank_statistics_histograms.png')
+    fig.savefig(out_path, bbox_inches='tight', dpi=300)
+    print(f'[rank_histograms] Saved → {out_path}')
+    plt.close(fig)
+
+    if show:
         plt.show()
 
 
