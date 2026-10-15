@@ -89,6 +89,7 @@ class Logger:
         """
         sys.stdout.write(msg)
         self.f.write(msg)
+        self.f.flush()
 
     def __enter__(self):
         """

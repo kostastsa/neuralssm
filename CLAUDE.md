@@ -31,6 +31,30 @@ python src/neuralssm/main.py ensemble <descriptors...>
 python src/neuralssm/main.py view <descriptor>
 ```
 
+## Servers: reports and live monitor
+
+Both are reachable from the laptop/phone over Tailscale (the mini is `100.83.107.60`, MagicDNS `mac-mini`). Manage them with `src/neuralssm/serve.sh` (run from `src/neuralssm/`; it is zsh):
+
+```bash
+./serve.sh start      # also the default; idempotent
+./serve.sh stop       # kills the tmux server `srv` and any monitor it spawned
+./serve.sh restart
+./serve.sh status     # tmux sessions + whether :8000 / :8001 are listening
+```
+
+- `start` creates a tmux server `tmux -L srv` with two sessions: `reports` (static server for `src/neuralssm/reports/` on **:8000**, always on) and `watch` (`monitor.py --watch`, which starts the live monitor on **:8001** whenever a `main.py run|trials` process exists). Nothing restarts after a reboot — run `./serve.sh` again. No launchd agents are installed (the user declined them).
+- If port 8000 is already taken by another process, `start` says so and skips the reports server; find and stop the old one before retrying. Don't kill processes you didn't start without asking.
+- The monitor (`monitor.py`) shows each running `trials` job as a group of experiments (file order, readable label, hover for the full descriptor) with progress bars, mean trial time and ETA, the running processes, and the tmux panes. A finished job stays on the page for 15 min (`--grace-minutes`). Finished experiments have a button that runs `main.py errors` (only if trials lack saved errors) and `main.py report`, then links to the report; reports are written to `src/neuralssm/reports/` (scratch/logs in `reports/.work/`, gitignored). "Stop monitor" on the page closes it until a new job starts. It only watches `trials` jobs, not single `main.py run`.
+- Standalone use: `python monitor.py --port 8001`; one-off report: `python main.py report <sample_gt> <start> <end> <descriptor files> [--out file.html]`.
+
+### Launching experiments so the monitor can track them
+
+Run `main.py trials True s <start> <end> <descriptor file>` from `src/neuralssm/` inside tmux (one tmux server per algorithm, `tmux -L abc|mcmc|snl|tsnl`; SNL/T-SNL via `run_nocrash.zsh`). Gotchas:
+- The shell must have the `jaxenv` conda env active (`conda activate jaxenv`); a fresh tmux server may open in `(base)` without `jax`, and the system `python3` crashes on an architecture mismatch.
+- Trial numbers start at **1** (`trial # must be a positive integer`).
+- A descriptor file holds several experiments that run **sequentially, in file order**, each over the whole trial range. Existing trial directories are skipped, never overwritten.
+- The monitor reads progress from each trial directory (`out.log`, `trial_time.pkl`), so don't rename or move result directories while a job runs.
+
 ## Architecture
 
 ### Experiment Lifecycle
