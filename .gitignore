@@ -9,3 +9,6 @@ __pycache__/
 \#*\#
 .\#*
 .claude/settings.local.json
+
+# Generated HTML reports
+src/neuralssm/reports/
