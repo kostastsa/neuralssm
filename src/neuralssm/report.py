@@ -206,7 +206,7 @@ def report(args):
     exp_descs = sum([ed.parse(util.io.load_txt(f)) for f in args.files], [])
     page = build_report(exp_descs, args.sample_gt, args.start, args.end)
     out = args.out or os.path.join(
-        misc.get_root(), 'reports',
+        os.path.dirname(misc.get_root()), 'reports',
         f'{os.path.splitext(os.path.basename(args.files[0]))[0]}_{args.sample_gt}_{args.start}_{args.end}.html')
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     with open(out, 'w') as f:

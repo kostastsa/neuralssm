@@ -43,7 +43,7 @@ main.py (errors/ensemble/view) ← experiment_viewer.py ← results loaded from 
 
 1. **Descriptor** (`experiment_descriptor.py`): Text-format configs parsed via regex into typed descriptor objects. The descriptor encodes the full experiment configuration and deterministically generates the storage directory path. Example: `lgssm_d4_snl_scan_num_sims_50_1000`.
 
-2. **Runner** (`experiment_runner.py`, class `ExperimentRunner`): Given a descriptor, samples/loads ground truth params, simulates observations, runs the inference algorithm, saves results + metrics + logs to `~/experiments/<simulator>/<config>/<trial>/`.
+2. **Runner** (`experiment_runner.py`, class `ExperimentRunner`): Given a descriptor, samples/loads ground truth params, simulates observations, runs the inference algorithm, saves results + metrics + logs to `src/neuralssm/data/experiments/<simulator>/<config>/<trial>/`.
 
 3. **Results** (`experiment_results.py`): Thin containers (`ABC_Results`, `MCMC_Results`, `SNL_Results`, `TSNL_Results`) that carry results arrays plus per-algorithm plotting metadata (name, marker, color).
 
@@ -69,7 +69,7 @@ JAX-PyTree-registered parameter containers. `ParameterProperties` tracks trainab
 
 ## Key Conventions
 
-**Experiment storage**: Results are saved under `~/experiments/` (hardcoded root in `misc.get_root()`). Directory paths encode the full config — changing any descriptor field changes the path.
+**Experiment storage**: Results are saved under `src/neuralssm/data/experiments/` (root is `misc.get_root()` = `src/neuralssm/data`); HTML reports from the `report` subcommand go to `src/neuralssm/reports/`. Directory paths encode the full config — changing any descriptor field changes the path.
 
 **Descriptor uniqueness**: `AlreadyExistingExperiment` is raised if a result directory already exists. `NonExistentExperiment` is raised on missing reads. Both are defined in `misc.py`.
 

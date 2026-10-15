@@ -141,7 +141,7 @@ def parse_args():
     parser_report.add_argument('start', type=int, help='# of first trial')
     parser_report.add_argument('end', type=int, help='# of last trial')
     parser_report.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
-    parser_report.add_argument('--out', type=str, default=None, help='output HTML path (default: <root>/reports/...)')
+    parser_report.add_argument('--out', type=str, default=None, help='output HTML path (default: src/neuralssm/reports/...)')
     parser_report.set_defaults(func=report_cmd)
 
     parser_gen_emissions = subparsers.add_parser('gen_emissions', help='generate emissions')
