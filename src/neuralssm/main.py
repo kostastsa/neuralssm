@@ -136,6 +136,14 @@ def parse_args():
     parser_rank.add_argument('--bins', type=int, default=12, help='number of histogram bins (default: 12)')
     parser_rank.set_defaults(func=rank_histograms)
 
+    parser_report = subparsers.add_parser('report', help='write a static HTML summary report for a set of experiments')
+    parser_report.add_argument('sample_gt', type=str2bool, help='A boolean flag (default: True)')
+    parser_report.add_argument('start', type=int, help='# of first trial')
+    parser_report.add_argument('end', type=int, help='# of last trial')
+    parser_report.add_argument('files', nargs='+', type=str, help='file(s) describing experiments')
+    parser_report.add_argument('--out', type=str, default=None, help='output HTML path (default: <root>/reports/...)')
+    parser_report.set_defaults(func=report_cmd)
+
     parser_gen_emissions = subparsers.add_parser('gen_emissions', help='generate emissions')
     parser_gen_emissions.add_argument('sample_gt', type=str2bool, help="A boolean flag (default: True)")
     parser_gen_emissions.add_argument('start', type=int, help='# of first trial')
@@ -2361,6 +2369,12 @@ def completion_status(args):
           'MCMC', mcmc.results, '\n',
           'SNL', snl.results, '\n',
           'T_SNL', tsnl.results)
+
+
+def report_cmd(args):
+
+    from report import report
+    report(args)
 
 
 def main():

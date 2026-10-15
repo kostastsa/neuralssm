@@ -68,7 +68,7 @@ def _param_dists(emission_dim, num_reactions):
                               gaussian_loc=mean_log_rates, 
                               gaussian_scale=[0.5**2]*4)
     
-    log_rates_dist = osc_dist
+    log_rates_dist = gaussian_dist
 
     # Emissions
     ## covariance
