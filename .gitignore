@@ -1,2 +1,11 @@
 src/neuralssm/datasets/
 src/neuralssm/data/
+
+# macOS / editor / Python junk
+.DS_Store
+__pycache__/
+*.pyc
+*~
+\#*\#
+.\#*
+.claude/settings.local.json
