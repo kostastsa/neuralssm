@@ -186,10 +186,12 @@ def get_exp_data(exp_dir, start_trial, end_trial):
         'mmd': [],
         'all_emissions': [],
         'gt': [],
+        'lp': [],
         'posterior': [],
         'losses' : [],
         'gen_sample': [],
-        'sample_dists': []
+        'sample_dists': [],
+        'trial_time': []
         }
     
     for trial in range(start_trial, end_trial+1):

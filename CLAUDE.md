@@ -84,3 +84,7 @@ JAX-PyTree-registered parameter containers. `ParameterProperties` tracks trainab
 ## Hardcoded Paths
 
 `misc.get_root()` and some paths in `main.py` reference `/Users/kostastsampourakis/`. When generalizing for other environments, these need to be made configurable.
+
+## Shared channel with the paper revision
+
+`/Users/kostastsampourakis/Desktop/STCO review/shared/` is read/write for this session and the paper-revision session (see its `README.md`). At the start of a task, check `requests/` for asks from the revision (task IDs A1–A5 etc.). Put outputs in `results/` as `<taskID>_<name>.<ext>` with a sibling `.md` giving the config, seed, commit hash and caveats. Don't edit the revision's files or overwrite earlier results; version them (`_v2`).

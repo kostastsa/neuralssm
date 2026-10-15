@@ -24,8 +24,8 @@ def create_descs(
 
     sim = ed.SimulatorDescriptor().get_descriptor(ssm)
 
-    scan_abc = [1000]
-    scan_mcmc = [1000]
+    scan_abc = [100]
+    scan_mcmc = [500]
     scan_snl = [500]
     scan_tsnl = [500]
 
@@ -55,7 +55,7 @@ def create_descs(
             scan_inits.append(scan_init)
             scan_fins.append(scan_fin)
 
-            q_max = 0.9
+            q_max = 0.8
             sigma = 1.0
             # num_prt = 1000
 
@@ -98,8 +98,6 @@ def create_descs(
             mcmc_steps = 1000
             n_rounds = 5
             mcmc_steps = 1000
-            train_on = 'all'
-            # n_samples = 100
 
             scan_init = scan_snl[0]
             scan_fin  = scan_snl[-1]
@@ -139,7 +137,6 @@ def create_descs(
             n_rounds = 5
             mcmc_steps = 1000
             subsample = 1.0
-            # n_samples = 100
 
             scan_init = scan_tsnl[0]
             scan_fin  = scan_tsnl[-1]
@@ -169,12 +166,15 @@ if __name__ == '__main__':
 
     exp_root = '/Users/kostastsampourakis/Desktop/code/Python/projects/neuralssm/src/neuralssm/exps'
 
-    target_vars = 'd4'
-    ssm = 'lgssm'
+    target_vars = 'e2'
+    ssm = 'svssm'
     scan = 'num_sims'
 
-    state_dim = 1
-    emission_dim = 1
+    state_dim = 2
+    emission_dim = 2
+
+    num_timesteps = 100
+    dt_obs = 1.0
 
     different_inference_methods = True
     algs = INF_ALGS
@@ -188,14 +188,15 @@ if __name__ == '__main__':
             ssm = ssm,
             alg = algs,
             target_vars = target_vars,
-            num_timesteps = 100,
-            dt_obs = 1.0,
+            num_timesteps = num_timesteps,
+            dt_obs = dt_obs,
             state_dim = state_dim,
             emission_dim = emission_dim,
             different_inference_methods = different_inference_methods,
             )
 
         alg_label = 'all_inf_methods'
+
         with open(exp_dir + f'/{ssm}_{target_vars}_{alg_label}.txt', 'w') as f:
 
             f.write(exp_descs)
@@ -208,8 +209,8 @@ if __name__ == '__main__':
                 ssm = ssm,
                 alg = alg,
                 target_vars = target_vars,
-                num_timesteps = 100,
-                dt_obs = 1.0,
+                num_timesteps = num_timesteps,
+                dt_obs = dt_obs,
                 state_dim = state_dim,
                 emission_dim = emission_dim,
                 different_inference_methods = different_inference_methods,
