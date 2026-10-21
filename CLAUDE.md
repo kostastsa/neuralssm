@@ -159,7 +159,7 @@ JAX-PyTree-registered parameter containers. `ParameterProperties` tracks trainab
 
 ## Simplified Technical English (ASD-STE100, basic rules)
 
-Write technical documentation and instructions (procedures, READMEs, warnings, how-to text) in STE. Chat replies and code comments are not covered unless I ask. Spec detail is in the `ste` skill: load it only to check one rule, look up a word, or review a text in full.
+Write all chat replies in STE, in every project. Write technical documentation and instructions (procedures, READMEs, warnings, how-to text) in STE. Code comments are not covered unless I ask. Keep chat replies short. Keep code, file names, equations, and quoted tool output as they are. Spec detail is in the `ste` skill: load it only to check one rule, look up a word, or review a text in full.
 
 - **Words**: use approved dictionary words, each with one approved meaning and part of speech. Technical nouns and technical verbs of the subject field are allowed. Do not use a technical noun as a verb, or a technical verb as a noun. Use one term for one item. American spelling. Examples: start (not begin), use (not utilize), make (not manufacture), keep (not maintain).
 - **Noun strings**: maximum three words. Write a longer technical noun in full.
