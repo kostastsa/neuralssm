@@ -103,7 +103,8 @@ def describe(desc):
         if inf.num_iters != 1:
             label += f' · {inf.num_iters} iters'
     elif kind.startswith('TSNL'):
-        label = f'T-SNL · {inf.n_samples} samples × {inf.n_rounds} rounds · lag {inf.lag} · {inf.mcmc_steps} MCMC steps'
+        lag = f'{inf.lag} (tol {inf.lag_tol})' if inf.lag_is_auto() else inf.lag
+        label = f'T-SNL · {inf.n_samples} samples × {inf.n_rounds} rounds · lag {lag} · {inf.mcmc_steps} MCMC steps'
     elif kind.startswith('SNL'):
         label = f'SNL · {inf.n_samples} samples × {inf.n_rounds} rounds · {inf.mcmc_steps} MCMC steps'
     else:

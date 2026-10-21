@@ -1971,6 +1971,7 @@ def gen_emissions(args, show=False):
                     print('MODEL FILE NOT FOUND')
 
                 model = nnx.merge(graphdef, state)
+                model = ed.resolve_model(exp_desc.inf, exp_dir, model)
 
                 if isinstance(exp_desc.inf, ed.SNL_Descriptor):
 
@@ -1980,7 +1981,7 @@ def gen_emissions(args, show=False):
                 elif isinstance(exp_desc.inf, ed.TSNL_Descriptor):
 
                     key, subkey = jr.split(key)
-                    gen_sample = generate_emissions(subkey, sim_desc.emission_dim, model, true_cps, num_samples, inf_desc.lag, sim_desc.num_timesteps)
+                    gen_sample = generate_emissions(subkey, sim_desc.emission_dim, model, true_cps, num_samples, ed.resolve_lag(inf_desc, exp_dir), sim_desc.num_timesteps)
 
                 util.io.save(gen_sample, os.path.join(exp_dir, 'gen_sample'))
 
@@ -2197,8 +2198,10 @@ def model_selection(args, get_mle=False, show=False):
 
                         graphdef, state = util.io.load(os.path.join(exp_dir, 'model'))
                         model = nnx.merge(graphdef, state)
-                        mle = find_mle(key, model, observations, exp_desc.inf.lag, props)
-                        mll_mle.append(loglik_fn(mle, observations, model, exp_desc.inf.lag))
+                        model = ed.resolve_model(exp_desc.inf, exp_dir, model)
+                        lag = ed.resolve_lag(exp_desc.inf, exp_dir)
+                        mle = find_mle(key, model, observations, lag, props)
+                        mll_mle.append(loglik_fn(mle, observations, model, lag))
 
             except misc.AlreadyExistingExperiment:
 

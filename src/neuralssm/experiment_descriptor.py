@@ -535,7 +535,29 @@ class SNL_Descriptor(InferenceDescriptor):
         return os.path.join('nde','snl','samples_{0}_rounds_{1}_train_on_{2}_sampler_{3}_mcmc_steps_{4}'.format(self.n_samples, self.n_rounds, self.train_on, self.sampler, self.mcmc_steps), self.model.get_id())
 
 
+LAG_AUTO = ('auto', 'ada')
+LAG_DEFAULT_TOL = 0.1
+
+
 class TSNL_Descriptor(InferenceDescriptor):
+    r"""
+    T-SNL descriptor. The ``lag`` field takes one of three kinds of value:
+
+    * an integer ``L >= 0``: fixed manual lag (the original behavior; the storage path is unchanged);
+    * ``auto``: lag selected once from the round-0 simulations and kept fixed (Option A of
+      ``lag_selection_plan.md``). The T-SNL network has this lag;
+    * ``ada``: lag re-selected in every round (Option B). The network is a lag-dropout network of
+      fixed shape, and the lag is the mask that the likelihood uses.
+
+    Both kinds select the lag with the lag-dropout network (decision D2). For ``auto`` and ``ada`` one more
+    field is part of the descriptor and of the storage path:
+
+    * ``lag_tol``: total-variation tolerance :math:`\eta` of the selection, :math:`K^\star=2\eta^2`
+      (default 0.1).
+
+    Text form, for example ``lag: auto, lag_tol: 0.1,``. The field may be omitted in a hand-written
+    descriptor, in which case the default above is used.
+    """
 
     def __init__(self, str=None):
 
@@ -543,6 +565,7 @@ class TSNL_Descriptor(InferenceDescriptor):
         self.n_samples = None
         self.n_rounds = None
         self.lag = None
+        self.lag_tol = None
         self.subsample = None
         self.train_on = None
         self.sampler = None
@@ -556,6 +579,10 @@ class TSNL_Descriptor(InferenceDescriptor):
 
             pass
 
+    def lag_is_auto(self):
+
+        return self.lag in LAG_AUTO
+
     def pprint(self):
 
         str = 'tsnl\n'
@@ -564,6 +591,8 @@ class TSNL_Descriptor(InferenceDescriptor):
         str += '\t\tn_samples: {0},\n'.format(self.n_samples)
         str += '\t\tn_rounds: {0},\n'.format(self.n_rounds)
         str += '\t\tlag: {0},\n'.format(self.lag)
+        if self.lag_is_auto():
+            str += '\t\tlag_tol: {0},\n'.format(self.lag_tol)
         str += '\t\tsubsample: {0},\n'.format(self.subsample)
         str += '\t\ttrain_on: {0},\n'.format(self.train_on)
         str += '\t\tsampler: {0},\n'.format(self.sampler)
@@ -572,7 +601,8 @@ class TSNL_Descriptor(InferenceDescriptor):
 
         return str
 
-    def create_desc(self, model_args, n_samples, n_rounds, lag, subsample, train_on, sampler, mcmc_steps):
+    def create_desc(self, model_args, n_samples, n_rounds, lag, subsample, train_on, sampler, mcmc_steps,
+                    lag_tol=None):
 
         model_desc = MAF_Descriptor().create_desc(*model_args)
 
@@ -583,6 +613,10 @@ class TSNL_Descriptor(InferenceDescriptor):
         str += '\n\t\tn_samples: {0},\n'.format(n_samples)
         str += '\t\tn_rounds: {0},\n'.format(n_rounds)
         str += '\t\tlag: {0},\n'.format(lag)
+        if lag in LAG_AUTO:
+            str += '\t\tlag_tol: {0},\n'.format(LAG_DEFAULT_TOL if lag_tol is None else lag_tol)
+        elif lag_tol is not None:
+            raise ValueError('lag_tol applies only to lag auto or ada')
         str += '\t\tsubsample: {0},\n'.format(subsample)
         str += '\t\ttrain_on: {0},\n'.format(train_on)
         str += '\t\tsampler: {0},\n'.format(sampler)
@@ -594,24 +628,89 @@ class TSNL_Descriptor(InferenceDescriptor):
     def parse(self, str):
 
         str = util.misc.remove_whitespace(str)
-        m = re.match(r'tsnl\{model:(.*),n_samples:(.*),n_rounds:(.*),lag:(.*),subsample:(.*),train_on:(all|last|best),sampler:(.*),mcmc_steps:(.*)\}\Z', str)
+        m = re.match(r'tsnl\{model:(?P<model>.*),n_samples:(?P<n_samples>.*),n_rounds:(?P<n_rounds>.*),'
+                     r'lag:(?P<lag>\d+|auto|ada)(?:,lag_tol:(?P<lag_tol>[^,]+))?,'
+                     r'subsample:(?P<subsample>.*),train_on:(?P<train_on>all|last|best),sampler:(?P<sampler>.*),'
+                     r'mcmc_steps:(?P<mcmc_steps>.*)\}\Z', str)
 
         if m is None:
             raise ParseError(str)
 
-        self.model = ModelDescriptor.get_descriptor(m.group(1))
-        self.n_samples = int(m.group(2))
-        self.n_rounds = int(m.group(3))
-        self.lag = int(m.group(4))
-        self.subsample = float(m.group(5))
-        self.train_on = m.group(6)
-        self.sampler = m.group(7)
-        self.mcmc_steps = int(m.group(8))
+        lag = m.group('lag')
+        lag_tol = m.group('lag_tol')
+
+        if lag in LAG_AUTO:
+
+            lag_tol = LAG_DEFAULT_TOL if lag_tol is None else float(lag_tol)
+
+            if not 0.0 < lag_tol < 1.0:
+                raise ParseError('lag_tol must be in (0, 1): {0}'.format(lag_tol))
+
+        else:
+
+            if lag_tol is not None:
+                raise ParseError('lag_tol applies only to lag auto or ada')
+
+            lag = int(lag)
+
+        self.model = ModelDescriptor.get_descriptor(m.group('model'))
+        self.n_samples = int(m.group('n_samples'))
+        self.n_rounds = int(m.group('n_rounds'))
+        self.lag = lag
+        self.lag_tol = lag_tol
+        self.subsample = float(m.group('subsample'))
+        self.train_on = m.group('train_on')
+        self.sampler = m.group('sampler')
+        self.mcmc_steps = int(m.group('mcmc_steps'))
 
     def get_dir(self):
 
-        return os.path.join('nde','tsnl', 'samples_{0}_rounds_{1}_lag_{2}_subsample_{3}_train_on_{4}_sampler_{5}_mcmc_steps_{6}'.format(self.n_samples, self.n_rounds, self.lag, self.subsample, self.train_on, self.sampler, self.mcmc_steps), self.model.get_id())
+        if self.lag_is_auto():
+            lag_str = '{0}_tol_{1}'.format(self.lag, self.lag_tol)
+        else:
+            lag_str = self.lag
+
+        return os.path.join('nde','tsnl', 'samples_{0}_rounds_{1}_lag_{2}_subsample_{3}_train_on_{4}_sampler_{5}_mcmc_steps_{6}'.format(self.n_samples, self.n_rounds, lag_str, self.subsample, self.train_on, self.sampler, self.mcmc_steps), self.model.get_id())
         
+
+def resolve_lag(inf, exp_dir):
+    """
+    Integer lag of a finished trial. For a fixed integer lag (and for SNL) this is ``inf.lag``. For
+    ``auto`` and ``ada`` it is read from ``lag_selection.json`` in the trial directory (``L_final`` if
+    present, else ``L_star``). For ``ada`` it is the lag of the last round, the lag of the final posterior.
+    """
+
+    if getattr(inf, 'lag', None) not in LAG_AUTO:
+        return inf.lag
+
+    import json
+
+    with open(os.path.join(exp_dir, 'lag_selection.json')) as f:
+        sel = json.load(f)
+
+    return int(sel['L_final'] if 'L_final' in sel else sel['L_star'])
+
+
+def resolve_model(inf, exp_dir, model):
+    """
+    The model of a finished trial, ready for the code that evaluates the T-SNL likelihood at
+    ``resolve_lag(inf, exp_dir)``. ``model`` is the network that was loaded from the trial directory
+    (``nnx.merge``). For every kind of lag but ``ada`` it is returned unchanged. For ``ada`` the network is
+    a lag-dropout network of lag ``L_max``, and it is returned as a ``LagMaskedModel`` that behaves as a
+    T-SNL model of the lag of the last round.
+    """
+
+    if getattr(inf, 'lag', None) != 'ada':
+        return model
+
+    import json
+    from inference.lag_scoring import LagMaskedModel
+
+    with open(os.path.join(exp_dir, 'lag_selection.json')) as f:
+        sel = json.load(f)
+
+    return LagMaskedModel(model, int(sel['L_final']), int(sel['L_max']), int(sel['n_params']), int(sel['emission_dim']))
+
 
 class ModelDescriptor:
 

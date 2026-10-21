@@ -12,6 +12,7 @@ from util.param import sample_prior, to_train_array, get_unravel_fn, tree_from_p
 from util.train import marg_loglik
 from flax import nnx
 from maf.density_models import MAF
+from inference import lag_scoring
 import experiment_descriptor as ed
 import misc
 import time
@@ -452,13 +453,28 @@ class ExperimentRunner:
 
             n_inputs = sim_desc.emission_dim
             n_params = to_train_array(xparam, props).shape[0]
-            n_cond = inf_desc.lag * sim_desc.emission_dim + n_params
             key_model, key_learner = jr.split(inf_key if inf_key is not None else key)
-            model = self._create_model(n_inputs, n_cond, key_model)
-            learner = nde.SequentialNeuralLikelihood(props, ssm, lag=inf_desc.lag)
             model_desc = self.exp_desc.inf.model
 
-            _, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
+            if inf_desc.lag_is_auto():
+
+                # The lag is selected after the round-0 simulations, so the model is built then.
+                # The learner gives the size of the conditioning vector: n_params + lag * d for 'auto',
+                # n_params + L_max * (1 + d) for the lag-dropout network of 'ada'.
+                model = None
+                model_factory = lambda n_cond: self._create_model(n_inputs, n_cond, key_model)
+                lag_opts = {'tol': inf_desc.lag_tol, 'hp': lag_scoring.hp_from_model_desc(model_desc)}
+
+            else:
+
+                n_cond = inf_desc.lag * sim_desc.emission_dim + n_params
+                model = self._create_model(n_inputs, n_cond, key_model)
+                model_factory = None
+                lag_opts = None
+
+            learner = nde.SequentialNeuralLikelihood(props, ssm, lag=inf_desc.lag, lag_opts=lag_opts)
+
+            model, (posterior_sample, posterior_cond_sample) = learner.learn_likelihood(
                 key=key_learner,
                 observations=observations,
                 model=model,
@@ -473,14 +489,19 @@ class ExperimentRunner:
                 num_tiles = num_tiles,
                 num_epochs = model_desc.nepochs,
                 learning_rate = model_desc.lr,
-                subsample = subsample
+                subsample = subsample,
+                model_factory = model_factory
             )
 
             key, subkey = jr.split(key)
-            mll = marg_loglik(subkey, props, observations, model, 100, inf_desc.lag)
+            mll = marg_loglik(subkey, props, observations, model, 100, learner.lag)
+
+            if learner.lag_selection is not None:
+
+                lag_scoring.save_selection(learner.lag_selection, exp_dir, scores=learner.lag_scores)
 
             util.io.save(mll, os.path.join(exp_dir, 'mll'))
-            util.io.save(nnx.split(model), os.path.join(exp_dir, 'model'))
+            util.io.save(nnx.split(getattr(model, 'base', model)), os.path.join(exp_dir, 'model'))
             util.io.save(([true_ps, true_cps], observations), os.path.join(exp_dir, 'gt'))
             util.io.save(learner.losses, os.path.join(exp_dir, 'losses'))
             util.io.save(learner.all_params, os.path.join(exp_dir, 'all_params'))
