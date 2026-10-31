@@ -35,12 +35,12 @@ def logdensity_fn(cond_params, model, emissions, prior, lag):
     '''
     Computes the log density of the TAF (lag>0) and SNL (lag=0) models.
     '''
+    # Same likelihood as util.train (sum over the windows, decision P-12). Here lag>0 is TAF and lag=0 is SNL.
+    from util.train import tsnl_loglik_fn, snl_loglik_fn
     if lag>0:
-        lagged_emissions = reshape_emissions(emissions, lag)
-        tile_cond_params = jnp.tile(cond_params, (lagged_emissions.shape[0], 1))
-        lp = -model.loss_fn(jnp.concatenate([tile_cond_params, lagged_emissions], axis=1))
+        lp = tsnl_loglik_fn(cond_params, emissions, model, lag)
     else:
-        lp = -model.loss_fn(jnp.concatenate([cond_params[None], emissions.flatten()[None]], axis=1))
+        lp = snl_loglik_fn(cond_params, emissions, model)
     lp += log_prior(cond_params, prior)
     return lp
 
