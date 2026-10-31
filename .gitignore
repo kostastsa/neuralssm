@@ -12,3 +12,6 @@ __pycache__/
 
 # Generated HTML reports
 src/neuralssm/reports/
+
+# Run logs of the scratch scripts
+src/neuralssm/scratch/*/logs/

@@ -90,11 +90,11 @@ The `lag` field of a `tsnl` descriptor has three kinds of value. You choose the 
 |---|---|---|
 | integer | Fixed manual lag. This is the original behavior. The storage path does not change. | done |
 | `auto` | The code selects the lag once from the round-0 simulations and keeps it fixed (Option A). The T-SNL network is a plain MAF at that lag. | done |
-| `ada` | The code selects the lag again after every round (Option B). The network is a lag-dropout network of fixed shape. The lag is a mask. | done, D3 (A against B) deferred |
+| `ada` | The code selects the lag again after every round (Option B). The network is a lag-dropout network of fixed shape. The lag is a mask. | done. The paper does not use it (P-09). It stays as an extension. |
 
 Both kinds select the lag with one lag-dropout network (decision D2). The code for one network per lag is removed. The descriptor of `auto` and `ada` has one more field, `lag_tol`. It is the TV tolerance η (default 0.1, so K* = 2η²). It is part of the storage path, for example `..._lag_auto_tol_0.1_subsample_...` or `..._lag_ada_tol_0.1_subsample_...`. Example, as `create_exps.py` writes it: `inf.create_desc(model_args, n_samples, n_rounds, 'ada', subsample, train_on, sampler, mcmc_steps, lag_tol=0.1)`.
 
-**Decision log.** All decisions of this work are in `shared/results/I1_decision_log.md`. When the user decides something about I1, add a row to the log in the same turn. List each default that you choose without asking in the row E9.
+**Decision log.** All decisions are in `shared/DECISIONS.md`. The I1 decisions have the prefix `I1-` (for example `I1-D3`). When the user decides something, add an entry in the same turn. List each default that you choose without asking in I1-E9, or in a new entry with the status `default`.
 
 **Code.** `inference/lag_selection.py` has the NumPy blocks. `inference/lag_scoring.py` has the JAX training and scoring. `SequentialNeuralLikelihood.learn_likelihood` calls both.
 
@@ -145,6 +145,8 @@ JAX-PyTree-registered parameter containers. `ParameterProperties` tracks trainab
 
 **Batch-norm log-determinant (fixed 2026-10-20)**: `maf/layers.py::BatchNormLayer` used to sum the log-determinant over the conditioning columns too, which it does not transform. The trained network and the posterior over θ were unaffected, but the reported NLL (`loss_fn`, `loglik_fn`, `marg_loglik` and the saved `mll` files) carried an offset that depends on `dcond`, hence on the lag, and on the number of training steps. Saved `mll` files from before the fix keep that offset. Do not compare them with new runs or with `loglik_fn` recomputed from a loaded model (which now uses the fixed layer).
 
+**T-SNL log density (fixed 2026-10-30, decision P-12)**: `util/train.py::logdensity_fn` used `MAF.loss_fn`, which is the mean NLL of a batch, as the T-SNL log-likelihood. So the MCMC of each round and the final posterior used the likelihood to the power 1/T. Now `logdensity_fn` calls `tsnl_loglik_fn` (the sum over the windows). `MAF.loss_fn` stays the mean, because it is the training loss. The posteriors of T-SNL trials from before the fix are tempered. Do not compare them with new runs. SNL trials are not affected. Test: `tests/test_tsnl_logdensity.py`.
+
 **Plotting style**: `scienceplots` + matplotlib. Per-algorithm convention: ABC=blue/circle, MCMC=red/cross, SNL=tomato/square, T-SNL=green/diamond.
 
 **Relative imports**: Source files in `src/neuralssm/` use bare relative imports (e.g., `import experiment_descriptor as ed`). Run via `pip install -e .` or from within `src/neuralssm/`.
@@ -155,7 +157,7 @@ JAX-PyTree-registered parameter containers. `ParameterProperties` tracks trainab
 
 ## Shared channel with the paper revision
 
-`/Users/kostastsampourakis/Desktop/STCO review/shared/` is read/write for this session and the paper-revision session (see its `README.md`). At the start of a task, check `requests/` for asks from the revision (task IDs A1–A5 etc.). `results/` holds only `.md` files that explain the results, named `<taskID>_<name>.md`, giving the config, seed, commit hash, caveats and the path of the data. Keep the data itself (CSV, JSON, PNG) in this repo under `src/neuralssm/data/shared_results/` as `<taskID>_<name>.<ext>`, never in `results/`. Don't edit the revision's files or overwrite earlier results; version them (`_v2`).
+`/Users/kostastsampourakis/Desktop/STCO review/shared/` is read/write for this session and the paper-revision session (see its `README.md`). At the start of a task, check `requests/` for asks from the revision (task IDs A1–A5 etc.). `results/` holds only `.md` files that explain the results, named `<taskID>_<name>.md`, giving the config, seed, commit hash, caveats and the path of the data. Keep the data itself (CSV, JSON, PNG) in this repo under `src/neuralssm/data/shared_results/` as `<taskID>_<name>.<ext>`, never in `results/`. Don't edit the revision's files or overwrite earlier results; version them (`_v2`). The exception is the three tracker files (see the next section).
 
 ## Simplified Technical English (ASD-STE100, basic rules)
 
@@ -169,3 +171,9 @@ Write all chat replies in STE, in every project. Write technical documentation a
 - **Descriptions**: maximum 25 words per sentence. One topic per paragraph. Maximum six sentences per paragraph. Give information gradually, with key words and phrases for structure.
 - **Safety**: WARNING for risk of injury or death, CAUTION for risk of damage (WARNING if both). Start with a clear command or condition, then explain the risk or result.
 - **Punctuation**: no semicolons. Hyphens only to join directly related words. Parentheses only for references, step or item identifiers, abbreviations, singular/plural, explanations, alternatives. A number, a number with its unit, an abbreviation, an identifier, quoted text, a label, or a proper noun counts as one word. Text in parentheses counts as one word.
+
+## Tracking: tasks and decisions
+
+Tracker: /Users/kostastsampourakis/Desktop/STCO review/shared (owner: exps)
+
+The project has a tracker (the `track` skill): `TODO.md` (tasks, read **Now** first), `DECISIONS.md` (decisions, read **Open decisions** first) and `REVIEW_MAP.md` (reviewer remarks). Write all tracker text in STE and run the STE checker after each change. Change only the rows of this session (owner `exps`). Record each decision in the same turn as the decision of the user.
