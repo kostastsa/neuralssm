@@ -54,6 +54,8 @@ class LGSSM_Descriptor(SimulatorDescriptor):
         self.input_dim = 0
         self.num_timesteps = None
         self.target_vars = None
+        self.dyn_weight = None      # optional: scalar a of the dynamics weights a*I (default of lgssm_params: 0.9)
+        self.emission_cov = None    # optional: scalar R of the emission covariance R*I (default: 0.1)
         self.name = 'lgssm'
 
         try:
@@ -71,20 +73,46 @@ class LGSSM_Descriptor(SimulatorDescriptor):
         str += '\t\tstate_dim: {0},\n'.format(self.state_dim)
         str += '\t\temission_dim: {0},\n'.format(self.emission_dim)
         str += '\t\tnum_timesteps: {0},\n'.format(self.num_timesteps)
-        str += '\t\ttarget_vars: {0}\n'.format('_'.join(self.target_vars))
-        str += '\t}'
+        str += '\t\ttarget_vars: {0}'.format('_'.join(self.target_vars))
+        str += self._overrides_text()
+        str += '\n\t}'
 
         return str
 
-    def create_desc(self, state_dim, emission_dim, num_timesteps, dt_obs, target_vars):
+    def _overrides_text(self, dyn_weight=None, emission_cov=None):
+
+        dyn_weight = self.dyn_weight if dyn_weight is None else dyn_weight
+        emission_cov = self.emission_cov if emission_cov is None else emission_cov
+        str = ''
+        if dyn_weight is not None:
+            str += ',\n\t\tdyn_weight: {0}'.format(dyn_weight)
+        if emission_cov is not None:
+            str += ',\n\t\temission_cov: {0}'.format(emission_cov)
+
+        return str
+
+    def setup_kwargs(self):
+        """Keyword arguments for simulators.lgssm.setup (empty for the default model)."""
+
+        kw = {}
+        if self.dyn_weight is not None:
+            kw['dyn_weight'] = self.dyn_weight
+        if self.emission_cov is not None:
+            kw['emission_cov'] = self.emission_cov
+
+        return kw
+
+    def create_desc(self, state_dim, emission_dim, num_timesteps, dt_obs, target_vars,
+                    dyn_weight=None, emission_cov=None):
         
         str = 'sim: lgssm\n'
         str += '\t{\n'
         str += '\t\tstate_dim: {0},\n'.format(state_dim)
         str += '\t\temission_dim: {0},\n'.format(emission_dim)
         str += '\t\tnum_timesteps: {0},\n'.format(num_timesteps)
-        str += '\t\ttarget_vars: {0}\n'.format(target_vars)
-        str += '\t}'
+        str += '\t\ttarget_vars: {0}'.format(target_vars)
+        str += self._overrides_text(dyn_weight, emission_cov)
+        str += '\n\t}'
 
         return str
 
@@ -93,7 +121,8 @@ class LGSSM_Descriptor(SimulatorDescriptor):
     def parse(self, str):
 
         str = util.misc.remove_whitespace(str)
-        m = re.match(r'lgssm\{state_dim:(.*),emission_dim:(.*),num_timesteps:(.*),target_vars:(.*)\}\Z', str)
+        m = re.match(r'lgssm\{state_dim:([^,]*),emission_dim:([^,]*),num_timesteps:([^,]*),target_vars:([^,}]*)'
+                     r'(?:,dyn_weight:([^,}]*))?(?:,emission_cov:([^,}]*))?\}\Z', str)
 
         if m is None:
             raise ParseError(str)
@@ -102,10 +131,18 @@ class LGSSM_Descriptor(SimulatorDescriptor):
         self.emission_dim = int(m.group(2))
         self.num_timesteps = int(m.group(3))
         self.target_vars = m.group(4).split('_')
+        self.dyn_weight = float(m.group(5)) if m.group(5) is not None else None
+        self.emission_cov = float(m.group(6)) if m.group(6) is not None else None
 
     def get_dir(self):
 
-        return os.path.join('lgssm', 'state-dim_{0}_emission-dim_{1}_num-timesteps_{2}_target-vars_{3}'.format(self.state_dim, self.emission_dim, self.num_timesteps, '_'.join(self.target_vars)))
+        name = 'state-dim_{0}_emission-dim_{1}_num-timesteps_{2}_target-vars_{3}'.format(self.state_dim, self.emission_dim, self.num_timesteps, '_'.join(self.target_vars))
+        if self.dyn_weight is not None:
+            name += '_dyn-weight_{0}'.format(self.dyn_weight)
+        if self.emission_cov is not None:
+            name += '_emission-cov_{0}'.format(self.emission_cov)
+
+        return os.path.join('lgssm', name)
 
 
 class SVSSM_Descriptor(SimulatorDescriptor):

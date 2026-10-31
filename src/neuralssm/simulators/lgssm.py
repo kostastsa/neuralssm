@@ -12,7 +12,7 @@ import util.io
 
 
 
-def setup(state_dim, emission_dim, input_dim, target_vars):
+def setup(state_dim, emission_dim, input_dim, target_vars, dyn_weight=0.9, emission_cov=0.1):
 
     param_names = [['mean', 'cov'],
                 ['weights', 'bias', 'input_weights', 'cov'],
@@ -22,7 +22,7 @@ def setup(state_dim, emission_dim, input_dim, target_vars):
                     [RealVecToStableMat(state_dim), None, None, RealToPSDBijector],
                     [None, None, None, RealToPSDBijector]]
     
-    init_vals = _init_vals(state_dim, emission_dim, input_dim)
+    init_vals = _init_vals(state_dim, emission_dim, input_dim, dyn_weight, emission_cov)
     param_dists = _param_dists(state_dim, emission_dim, input_dim)
     is_target = get_bool_tree(target_vars, param_names)   
     prior_fields = get_prior_fields(init_vals, param_dists, is_target)
@@ -36,6 +36,8 @@ def setup(state_dim, emission_dim, input_dim, target_vars):
         'state_dim': state_dim,
         'emission_dim': emission_dim,
         'input_dim': input_dim,
+        'dyn_weight': dyn_weight,
+        'emission_cov': emission_cov,
         'is_target': is_target,
         'param_names': param_names,
         'constrainers': constrainers,

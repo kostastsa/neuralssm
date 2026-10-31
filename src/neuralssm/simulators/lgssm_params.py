@@ -5,12 +5,12 @@ import tensorflow_probability.substrates.jax.distributions as tfd # type: ignore
 import numpyro.distributions as dist # type: ignore
 
 
-def _init_vals(state_dim, emission_dim, input_dim):
+def _init_vals(state_dim, emission_dim, input_dim, dyn_weight=0.9, emission_cov=0.1):
         
     initial_mean = jnp.zeros(state_dim)
     initial_covariance = jnp.eye(state_dim) * 0.1
 
-    dynamics_weights  = 0.9 * jnp.eye(state_dim)
+    dynamics_weights  = dyn_weight * jnp.eye(state_dim)
     dynamics_bias = jnp.zeros(state_dim)
     dynamics_input_weights = jnp.zeros((state_dim, input_dim))
     dynamics_covariance = jnp.eye(state_dim) * 0.1
@@ -18,7 +18,7 @@ def _init_vals(state_dim, emission_dim, input_dim):
     emission_weights = jnp.eye(emission_dim, state_dim)
     emission_bias = jnp.zeros(emission_dim)
     emission_input_weights = jnp.zeros((emission_dim, input_dim))
-    emission_covariance = jnp.eye(emission_dim) * 0.1
+    emission_covariance = jnp.eye(emission_dim) * emission_cov
 
     init_vals = [[initial_mean, initial_covariance],
                     [dynamics_weights, dynamics_bias, dynamics_input_weights, dynamics_covariance],

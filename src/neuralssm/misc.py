@@ -56,6 +56,16 @@ def get_simulator(sim_desc):
     else:
         raise ValueError('unknown simulator')
 
+    kwargs = sim_desc.setup_kwargs() if hasattr(sim_desc, 'setup_kwargs') else {}
+    if kwargs:
+        # Non-default model values (for example the LGSSM a and R of the A5 regimes): bind them to setup,
+        # so that every caller of sim.setup(...) gets the same model.
+        import functools
+        import types
+        bound = types.SimpleNamespace(**{k: getattr(sim, k) for k in dir(sim) if not k.startswith('__')})
+        bound.setup = functools.partial(sim.setup, **kwargs)
+        return bound
+
     return sim
 
 
